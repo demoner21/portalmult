@@ -1,0 +1,7 @@
+README.md
+pyproject.toml
+src/spin_susano.egg-info/PKG-INFO
+src/spin_susano.egg-info/SOURCES.txt
+src/spin_susano.egg-info/dependency_links.txt
+src/spin_susano.egg-info/requires.txt
+src/spin_susano.egg-info/top_level.txt

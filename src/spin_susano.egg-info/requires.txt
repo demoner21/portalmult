@@ -1,0 +1,11 @@
+fastapi
+python-multipart
+uvicorn
+fastapi-structlog
+asgi-correlation-id
+pillow
+numpy<1.28
+tensorflow<2.11
+matplotlib
+scikit-learn
+rasterio

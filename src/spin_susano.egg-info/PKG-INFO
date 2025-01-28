@@ -1,0 +1,15 @@
+Metadata-Version: 2.2
+Name: spin_susano
+Version: 0.1.0
+Requires-Python: <3.10,>=3.8
+Requires-Dist: fastapi
+Requires-Dist: python-multipart
+Requires-Dist: uvicorn
+Requires-Dist: fastapi-structlog
+Requires-Dist: asgi-correlation-id
+Requires-Dist: pillow
+Requires-Dist: numpy<1.28
+Requires-Dist: tensorflow<2.11
+Requires-Dist: matplotlib
+Requires-Dist: scikit-learn
+Requires-Dist: rasterio

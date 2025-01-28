@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste pesquisa</title>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+</head>
+
+<body><main x-data="searchInput" class="container">
+    <h1>Teste o Funcionamento da API!</h1>
+    <hr>
+
+    <!-- Seção de teste da API de imagem -->
+    <section aria-labelledby="image-api-test" class="grid">
+        <h2 id="image-api-test">Teste a API de Imagem</h2>
+        <form @submit.prevent="requestBackendPrediction()" id="formInput" class="image-form">
+            <label>
+                Escolha a imagem para testar a API:
+                <input type="file" multiple name="files" />
+            </label>
+            <button type="submit" :disabled="is_processing" :aria-busy="is_processing"
+                aria-label="Processando imagem" x-text="is_processing ? 'Processando Imagem...' : 'Enviar'">
+            </button>
+            <span x-text="errorMessage" class="error-message"></span>
+
+            <!-- Exibe imagem RGB quando disponível -->
+            <img x-bind:src="imgRGB" x-show="imgRGB !== null" x-transition class="preview-image">
+        </form>
+
+        <div class="response-container">
+            <!-- Exibe a classificação da imagem -->
+            <p x-show="response['predicted_class']" x-transition>
+                Imagem classificada como classe:
+                <span x-text="response['predicted_class']"></span>
+            </p>
+            <template x-for="index in sortedKeys">
+                <p>
+                    <strong>Classe: <span x-text="index"></span></strong> - probabilidade:
+                    <span x-text="response['probabilities'][index]"></span>%
+                    <progress x-bind:value="response['probabilities'][index]" max="100"></progress>
+                </p>
+            </template>
+
+            <!-- Exibe a imagem processada -->
+            <img x-bind:src="imgSrc" x-show="imgSrc !== null" x-transition class="processed-image">
+        </div>
+    </section>
+
+    <hr>
+
+    <!-- Seção de teste do Endpoint de Mapa -->
+    <section aria-labelledby="map-endpoint-test" class="grid">
+        <h2 id="map-endpoint-test">Teste o Endpoint de Mapa</h2>
+        <form @submit.prevent="requestMapData()" id="mapForm" class="map-form">
+            <label for="latitude">Latitude:</label>
+            <input type="number" id="latitude" x-model="mapParams.latitude" step="0.000001" required>
+
+            <label for="longitude">Longitude:</label>
+            <input type="number" id="longitude" x-model="mapParams.longitude" step="0.000001" required>
+
+            <label for="dateStart">Data Início (YYYY-MM-DD):</label>
+            <input type="text" id="dateStart" x-model="mapParams.dateStart" required>
+
+            <label for="dateEnd">Data Fim (YYYY-MM-DD):</label>
+            <input type="text" id="dateEnd" x-model="mapParams.dateEnd" required>
+
+            <label for="filter">Filtro (CLOUDY_PIXEL_PERCENTAGE,valor):</label>
+            <input type="text" id="filter" x-model="mapParams.filter">
+
+            <button type="submit" :disabled="is_processing_map" :aria-busy="is_processing_map">
+                Gerar Mapa
+            </button>
+        </form>
+
+        <div class="map-response">
+            <!-- Link para baixar o mapa gerado -->
+            <p x-show="mapUrl !== null">
+                <a :href="mapUrl" target="_blank">Baixar Mapa</a>
+            </p>
+
+            <!-- Exibe o mapa quando disponível -->
+            <img x-bind:src="mapUrl" x-show="mapUrl !== null" x-transition class="map-image">
+        </div>
+    </section>
+</main>
+
+    <script>
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('searchInput', () => ({
+                response: {},
+                sortedKeys: [],
+                errorMessage: '',
+                is_processing: false,
+                is_processing_map: false,
+                imgSrc: null,
+                imgRGB: null,
+                mapUrl: null,
+                mapParams: {
+                    latitude: -17.70894,
+                    longitude: -40.60899,
+                    dateStart: '2024-06-01',
+                    dateEnd: '2024-06-30',
+                    filter: 'CLOUDY_PIXEL_PERCENTAGE,15'
+                },
+    
+                async requestMapData() {
+                    this.is_processing_map = true;
+                    this.mapUrl = null;
+                    this.errorMessage = '';
+    
+                    const params = new URLSearchParams();
+                    params.append('latitude', this.mapParams.latitude);
+                    params.append('longitude', this.mapParams.longitude);
+                    params.append('data', this.mapParams.dateStart);
+                    params.append('data', this.mapParams.dateEnd);
+                    params.append('filter', this.mapParams.filter);
+    
+                    try {
+                        const response = await fetch(`/get_map?${params.toString()}`, {
+                            headers: {
+                                "cache-control": "no-cache",
+                                "pragma": "no-cache",
+                            },
+                            method: "GET",
+                            credentials: "omit",
+                        });
+    
+                        if (response.ok) {
+                            const blob = await response.blob();
+                            const urlCreator = window.URL || window.webkitURL;
+                            this.mapUrl = urlCreator.createObjectURL(blob);
+                        } else {
+                            const data = await response.json();
+                            this.errorMessage = data.detail;
+                        }
+                    } catch (error) {
+                        this.errorMessage = "Erro ao processar a requisição: " + error.message;
+                        console.error(error);
+                    }
+    
+                    this.is_processing_map = false;
+                },
+    
+                async requestBackendPrediction() {
+                    this.is_processing = true;
+                    this.imgSrc = null;
+                    this.imgRGB = null;
+                    this.errorMessage = '';
+                    
+                    const formElement = document.getElementById('formInput');
+                    const formData = new FormData(formElement);
+    
+                    try {
+                        const request = await fetch(`/predict`, {
+                            headers: {
+                                "accept": "application/json",
+                                "cache-control": "no-cache",
+                                "pragma": "no-cache",
+                            },
+                            body: formData,
+                            method: "POST",
+                            credentials: "omit"
+                        });
+    
+                        const data = await request.json();
+                        if (request.status == 400) {
+                            this.errorMessage = data.detail;
+                            this.is_processing = false;
+                            return;
+                        }
+                        this.response = data;
+                        this.sortedKeys = Object.keys(data.probabilities).sort();
+    
+                        const imageRequest = await fetch(`/visualize`, {
+                            headers: {
+                                "cache-control": "no-cache",
+                                "pragma": "no-cache",
+                            },
+                            body: formData,
+                            method: "POST",
+                            credentials: "omit"
+                        });
+                        const imageData = await imageRequest.blob();
+                        const urlCreator = window.URL || window.webkitURL;
+                        this.imgSrc = urlCreator.createObjectURL(imageData);
+    
+                        const rgbRequest = await fetch(`/visualize?rgb_image=true`, {
+                            headers: {
+                                "cache-control": "no-cache",
+                                "pragma": "no-cache",
+                            },
+                            body: formData,
+                            method: "POST",
+                            credentials: "omit"
+                        });
+                        const rgbData = await rgbRequest.blob();
+                        this.imgRGB = urlCreator.createObjectURL(rgbData);
+                    } catch (error) {
+                        this.errorMessage = "Erro ao processar a requisição: " + error.message;
+                        console.error(error);
+                    }
+    
+                    this.is_processing = false;
+                }
+            }));
+        });
+    </script>
+</body>
+</html>
