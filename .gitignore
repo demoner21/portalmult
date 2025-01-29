@@ -1,0 +1,10 @@
+models
+validation
+train
+venv
+2024-10-17-15-51-39
+2024-10-21-14-34-42
+*best.keras
+*config.json
+__pycache__
+gitingnore
