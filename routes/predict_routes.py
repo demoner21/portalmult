@@ -7,6 +7,8 @@ import asyncio
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from utils.async_utils import process_request_files
+from services.model_loader import create_model_binary, create_model_classification, binary_predictor, classification_predictor
+
 
 from spin.inference import (
     InferenceResult,
@@ -20,20 +22,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["predict"])
 
 # Configuração dos modelos
-binary_predictor = None
-classification_predictor = None
-
-def create_model_binary() -> None:
-    global binary_predictor
-    binary_predictor = KerasInferencePredictor.from_folder(
-        "models/2024-10-17-15-51-39/"
-    )
-
-def create_model_classification() -> None:
-    global classification_predictor
-    classification_predictor = KerasInferencePredictor.from_folder(
-        "models/2024-10-21-14-34-42/"
-    )
+create_model_binary()
+create_model_classification()
 
 pool_binary = ProcessPoolExecutor(max_workers=1, initializer=create_model_binary)
 pool_classification = ProcessPoolExecutor(max_workers=1, initializer=create_model_classification)

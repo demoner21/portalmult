@@ -7,26 +7,12 @@ import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Dict, Tuple, Any
-from utils.zip_creator import ZipCreator
 from utils.validators import bandas
 from utils.async_utils import download_band
+from services.earth_engine_initializer import initialize_earth_engine
 from utils.raster_utils import read_and_normalize, calculate_and_save
 
 logger = logging.getLogger(__name__)
-
-def initialize_earth_engine():
-    try:
-        ee.Initialize()
-    except Exception as e:
-        logger.error(f"Erro ao inicializar o Earth Engine: {str(e)}")
-        logger.info("Autenticando no Earth Engine...")
-        try:
-            ee.Authenticate()
-            ee.Initialize()
-            logger.info("Autenticação e inicialização do Earth Engine concluídas com sucesso.")
-        except Exception as auth_error:
-            logger.error(f"Falha na autenticação do Earth Engine: {str(auth_error)}")
-            raise RuntimeError("Não foi possível inicializar o Earth Engine. Verifique a autenticação.")
 
 initialize_earth_engine()
 

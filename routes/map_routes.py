@@ -4,7 +4,7 @@ from typing import Optional, Dict
 from middleware.request_queue import RequestQueue
 from utils.validators import *
 from services.earth_engine_processor import EarthEngineProcessor
-from services.zip_creator import ZipCreator
+from utils.zip_creator import ZipCreator
 import logging
 
 router = APIRouter()

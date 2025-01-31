@@ -8,7 +8,8 @@ from fastapi_structlog.middleware import AccessLogMiddleware, CurrentScopeSetMid
 from routes import map_router, predict_router, visualize_router
 from utils.logging import setup_logging
 import structlog
-import logging
+from middleware import add_logging_middleware, add_cors_middleware
+from services.earth_engine_initializer import initialize_earth_engine
 
 # Configuração do structlog
 structlog.configure(
@@ -27,18 +28,7 @@ structlog.configure(
 logger = setup_logging()
 
 # Inicializa o Earth Engine
-try:
-    ee.Initialize()
-except Exception as e:
-    logger.error(f"Erro ao inicializar o Earth Engine: {str(e)}")
-    logger.info("Autenticando no Earth Engine...")
-    try:
-        ee.Authenticate()
-        ee.Initialize()
-        logger.info("Autenticação e inicialização do Earth Engine concluídas com sucesso.")
-    except Exception as auth_error:
-        logger.error(f"Falha na autenticação do Earth Engine: {str(auth_error)}")
-        raise RuntimeError("Não foi possível inicializar o Earth Engine. Verifique a autenticação.")
+initialize_earth_engine()
 
 # Configuração do FastAPI
 app = FastAPI(
@@ -52,14 +42,8 @@ app = FastAPI(
     ],
 )
 
-# Configuração do CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+add_logging_middleware(app)
+add_cors_middleware(app)
 
 # Montagem de arquivos estáticos (frontend de exemplo)
 app.mount("/example", StaticFiles(directory="static", html=True), name="static")

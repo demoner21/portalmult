@@ -1,9 +1,13 @@
 from .earth_engine_processor import EarthEngineProcessor
-from .zip_creator import ZipCreator
-
+from .earth_engine_initializer import initialize_earth_engine
+from .model_loader import *
 # Define o que será importado com `from services import *`
+
 __all__ = [
+    "load_model",
+    "create_model_binary",
+    "create_model_classification",
+    "run_prediction",
     "EarthEngineProcessor",
-    "ZipCreator",
-    "model_loader",
+    "initialize_earth_engine",
 ]

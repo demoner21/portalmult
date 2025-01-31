@@ -15,7 +15,7 @@ O projeto Spin Suzano é uma ferramenta que utiliza imagens de satélite para de
 
 1. Crie um ambiente virtual utilizando o `python -m venv` e ative-o com `source venv/bin/activate`
 2. Instale as dependências necessárias: `pip install -e .`
-3. Inicie o servidor de desenvolvimento `uvicorn main:app --host 0.0.0.0 --port 8000`
+3. Inicie o servidor de desenvolvimento `uvicorn app:app --host 0.0.0.0 --port 8000 --reload`
 
 ## Documentação
 
