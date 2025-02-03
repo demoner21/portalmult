@@ -58,6 +58,44 @@ async def download_band(image, band, region, nome_arquivo, scale=10, crs='EPSG:4
     except Exception as e:
         logger.error(f"Erro ao baixar a banda {band}: {e}", exc_info=True)
 
+async def download_slope(image, region, nome_arquivo, scale=10, crs='EPSG:4326'):
+    """
+    Faz o download da imagem de inclinação (slope) do Earth Engine.
+    """
+    try:
+        filename = f"slope_{nome_arquivo}.tif"
+        logger.info(f"Preparando download da imagem de inclinação (slope)")
+
+        download_id = ee.data.getDownloadId({
+            'image': image,
+            'scale': scale,
+            'region': region,
+            'format': 'GEO_TIFF',
+            'crs': crs
+        })
+
+        url = ee.data.makeDownloadUrl(download_id)
+        logger.info(f"URL de download gerada para slope")
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status == 200:
+                    async with aiofiles.open(filename, 'wb') as f:
+                        while True:
+                            chunk = await response.content.read(1024)
+                            if not chunk:
+                                break
+                            await f.write(chunk)
+                    logger.info(f"Slope baixado com sucesso: {filename}")
+                    return filename
+                else:
+                    logger.error(f"Falha ao baixar a imagem de slope. Status: {response.status}")
+                    return None
+
+    except Exception as e:
+        logger.error(f"Erro ao baixar a imagem de slope: {e}", exc_info=True)
+        return None
+
 async def process_request_files(files: List[UploadFile]):
     """
     Processa os arquivos enviados na requisição.
