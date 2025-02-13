@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware import Middleware
 from asgi_correlation_id import CorrelationIdMiddleware
 from fastapi_structlog.middleware import AccessLogMiddleware, CurrentScopeSetMiddleware, StructlogMiddleware
-from routes import map_router, predict_router, visualize_router
+from routes import map_router, predict_router, visualize_router, shp_routes
 from utils.logging import setup_logging
 import structlog
 from middleware import add_logging_middleware, add_cors_middleware
@@ -50,6 +50,7 @@ app.mount("/example", StaticFiles(directory="static", html=True), name="static")
 
 # Inclusão das rotas
 app.include_router(map_router)
+app.include_router(shp_routes)
 app.include_router(predict_router)
 app.include_router(visualize_router)
 
