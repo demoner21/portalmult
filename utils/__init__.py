@@ -3,6 +3,7 @@ from .logging import logger, setup_logging
 from .raster_utils import read_and_normalize, calculate_and_save, get_raster_center_coords
 from .async_utils import download_band
 from .zip_creator import ZipCreator
+from .data_range import validate_date_range
 
 # Define o que será importado com `from utils import *`
 __all__ = [
@@ -15,4 +16,5 @@ __all__ = [
     "get_raster_center_coords",
     "download_band",
     "ZipCreator",
+    "validate_date_range",
 ]
