@@ -1,14 +1,19 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 from typing import List
-import os
-import shutil
 from datetime import datetime
 from pathlib import Path
+from utils.upload_utils import save_uploaded_files, cleanup_temp_files
+from utils.shapefile_utils import extrair_geometria_shp
+from services.earth_engine_processor import EarthEngineProcessor
+import logging
+import ee
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 @router.post("/download_image/")
-async def upload_shapefile(
+async def download_image_from_shapefile(
     shapefile: UploadFile = File(..., description="Arquivo .shp"),
     shxfile: UploadFile = File(..., description="Arquivo .shx"),
     dbffile: UploadFile = File(..., description="Arquivo .dbf"),
@@ -17,56 +22,56 @@ async def upload_shapefile(
     cloud_pixel_percentage: float = Query(..., description="Percentual máximo de nuvens permitido (0 a 100)")
 ):
     """
-    Faz o upload de arquivos .shp, .shx e .dbf, valida o intervalo de datas e aplica o filtro de nuvens.
+    Faz o upload de arquivos .shp, .shx e .dbf, e baixa imagens referentes à geometria do shapefile.
     """
     try:
-        # Validar o intervalo de datas
-        validate_date_range(start_date, end_date)
-
-        # Validar o percentual de nuvens
-        if not 0 <= cloud_pixel_percentage <= 100:
-            raise HTTPException(
-                status_code=400,
-                detail="O percentual de nuvens deve estar entre 0 e 100."
-            )
-
         # Salvar os arquivos temporariamente
-        temp_dir = Path("temp_shapefile")
-        temp_dir.mkdir(exist_ok=True)
+        temp_dir = save_uploaded_files(shapefile, shxfile, dbffile)
 
+        # Carregar o shapefile como uma geometria do Earth Engine
         shapefile_path = temp_dir / shapefile.filename
-        shxfile_path = temp_dir / shxfile.filename
-        dbffile_path = temp_dir / dbffile.filename
+        ee_geometry = extrair_geometria_shp(shapefile_path)
 
-        with open(shapefile_path, "wb") as buffer:
-            shutil.copyfileobj(shapefile.file, buffer)
-        with open(shxfile_path, "wb") as buffer:
-            shutil.copyfileobj(shxfile.file, buffer)
-        with open(dbffile_path, "wb") as buffer:
-            shutil.copyfileobj(dbffile.file, buffer)
+        # Se o shapefile não contiver geometrias válidas, usar uma região retangular
+        if ee_geometry is None:
+            logger.warning("Shapefile inválido. Usando região retangular padrão.")
+            bbox = EarthEngineProcessor.create_bbox(0, 0)  # Coordenadas padrão (ajuste conforme necessário)
+            ee_geometry = ee.Geometry.Rectangle([
+                bbox["longitude_min"],
+                bbox["latitude_min"],
+                bbox["longitude_max"],
+                bbox["latitude_max"]
+            ])
 
-        # Aqui você pode adicionar a lógica para processar os arquivos .shp, .shx e .dbf
-        # e aplicar o filtro de nuvens usando o Earth Engine.
+        # Validar datas
+        try:
+            start_date = datetime.strptime(start_date, '%Y-%m-%d')
+            end_date = datetime.strptime(end_date, '%Y-%m-%d')
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato de data inválido. Use 'YYYY-MM-DD'.")
 
-        # Exemplo de retorno (substitua pela lógica real)
-        return {
-            "message": "Arquivos recebidos e validados com sucesso.",
-            "start_date": start_date,
-            "end_date": end_date,
-            "cloud_pixel_percentage": cloud_pixel_percentage,
-            "shapefile": shapefile.filename,
-            "shxfile": shxfile.filename,
-            "dbffile": dbffile.filename
-        }
+        # Validar percentual de nuvens
+        if not 0 <= cloud_pixel_percentage <= 100:
+            raise HTTPException(status_code=400, detail="O percentual de nuvens deve estar entre 0 e 100.")
+
+        # Processar e baixar as imagens
+        processor = EarthEngineProcessor()
+        result, _ = await processor.process_data(
+            parameters={
+                "latitude": 0,  # Ajuste conforme necessário
+                "longitude": 0,  # Ajuste conforme necessário
+                "data": [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')],
+                "filter": f"cloud_percentage,{cloud_pixel_percentage}"
+            },
+            geometry=ee_geometry
+        )
+
+        return {"message": "Imagens baixadas com sucesso.", "files": result}
 
     except HTTPException as he:
         raise he
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Erro interno ao processar os arquivos: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Erro ao processar o shapefile: {str(e)}")
     finally:
-        # Limpar os arquivos temporários após o processamento
-        if temp_dir.exists():
-            shutil.rmtree(temp_dir)
+        # Limpar os arquivos temporários
+        cleanup_temp_files(temp_dir)

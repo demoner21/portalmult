@@ -10,3 +10,4 @@ __pycache__
 gitingnore
 *.tif
 *.tiff
+.env

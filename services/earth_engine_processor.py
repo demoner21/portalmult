@@ -6,7 +6,7 @@ import glob
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import Dict, Tuple, Any
+from typing import Dict, Tuple, Any, Optional
 from utils.validators import bandas
 from utils.async_utils import download_band, download_slope
 from services.earth_engine_initializer import initialize_earth_engine
@@ -18,51 +18,63 @@ initialize_earth_engine()
 
 
 class EarthEngineProcessor:
-    async def process_data(self, parameters: Dict) -> Tuple[list[str], Any]:
+    async def process_data(
+        self,
+        parameters: Dict,
+        geometry: Optional[ee.Geometry] = None
+    ) -> Tuple[list[str], Any]:
         """
         Processa dados do Earth Engine com base nos parâmetros fornecidos.
+        Aceita uma geometria personalizada ou cria uma região retangular com base em latitude e longitude.
         """
+        # Gerar nome do arquivo
         nome_arquivo = f"sentinel_{parameters['latitude']}_{parameters['longitude']}_{parameters['data'][0]}_{parameters['data'][1]}"
 
+        # Validar parâmetros
         if not isinstance(parameters.get('data'), (tuple, list)):
             logger.error("Parâmetro 'data' não está no formato correto.")
-            return [], {"status": "erro",
-                        "mensagem": "Formato inválido para o parâmetro 'data'."}
+            return [], {"status": "erro", "mensagem": "Formato inválido para o parâmetro 'data'."}
 
         logger.info(f"Iniciando processamento com parâmetros: {parameters}")
         logger.info(f"Nome do arquivo: {nome_arquivo}")
 
+        # Validar filtro de nuvens
         if isinstance(parameters.get('filter'), list):
             parameters['filter'] = parameters['filter'][0]
         elif not isinstance(parameters.get('filter'), str):
             logger.error("Formato inválido para o parâmetro 'filter'.")
-            return [], {"status": "erro",
-                        "mensagem": "Formato inválido para o parâmetro 'filter'."}
+            return [], {"status": "erro", "mensagem": "Formato inválido para o parâmetro 'filter'."}
 
+        # Verificar parâmetros obrigatórios
         for key in ['latitude', 'longitude', 'data']:
             if key not in parameters:
                 logger.error(f"Parâmetro ausente: {key}")
-                return [], {"status": "erro",
-                            "mensagem": f"Parâmetro ausente: {key}"}
+                return [], {"status": "erro", "mensagem": f"Parâmetro ausente: {key}"}
 
-        bbox = self.create_bbox(
-            float(parameters['latitude']), float(parameters['longitude']))
-        region = ee.Geometry.Rectangle([
-            bbox["longitude_min"],
-            bbox["latitude_min"],
-            bbox["longitude_max"],
-            bbox["latitude_max"]
-        ])
+        # Criar região (bbox ou usar geometria personalizada)
+        if geometry is None:
+            bbox = self.create_bbox(float(parameters['latitude']), float(parameters['longitude']))
+            region = ee.Geometry.Rectangle([
+                bbox["longitude_min"],
+                bbox["latitude_min"],
+                bbox["longitude_max"],
+                bbox["latitude_max"]
+            ])
+        else:
+            region = geometry
+
         logger.info(f"Região definida: {region.getInfo()}")
 
+        # Validar datas
         try:
-            data_inicio, data_fim = [datetime.strptime(
-                d, '%Y-%m-%d') for d in parameters['data']]
+            data_inicio, data_fim = [datetime.strptime(d, '%Y-%m-%d') for d in parameters['data']]
         except ValueError:
             logger.error("Erro ao converter as datas.")
             return [], {
-                "status": "erro", "mensagem": "Formato de data inválido. Utilize o formato 'YYYY-MM-DD'."}
+                "status": "erro", "mensagem": "Formato de data inválido. Utilize o formato 'YYYY-MM-DD'."
+            }
 
+        # Validar percentual de nuvens
         cloud_filter = 100
         if parameters.get('filter'):
             try:
@@ -71,8 +83,10 @@ class EarthEngineProcessor:
             except ValueError:
                 logger.error("Erro ao processar o filtro de nuvens.")
                 return [], {
-                    "status": "erro", "mensagem": "Filtro de nuvens mal formatado. Exemplo: 'cloud_percentage,10'."}
+                    "status": "erro", "mensagem": "Filtro de nuvens mal formatado. Exemplo: 'cloud_percentage,10'."
+                }
 
+        # Filtrar imagens
         image_collection = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
         filtered_collection = (image_collection
                                .filterBounds(region)
@@ -83,8 +97,7 @@ class EarthEngineProcessor:
         logger.info(f"Número de imagens encontradas: {count}")
 
         if count == 0:
-            logger.warning(
-                "Nenhuma imagem encontrada para os parâmetros fornecidos.")
+            logger.warning("Nenhuma imagem encontrada para os parâmetros fornecidos.")
             return [], {
                 "status": 404,
                 "mensagem": "Nenhuma imagem encontrada para os parâmetros fornecidos.",
@@ -96,9 +109,11 @@ class EarthEngineProcessor:
                 }
             }
 
+        # Selecionar a primeira imagem
         image = filtered_collection.sort('system:time_start', False).first()
         logger.info("Primeira imagem selecionada")
 
+        # Baixar bandas e processar
         bands_files, _ = await self._process_bands(image, region, nome_arquivo)
         
         # Adicionar processamento do slope

@@ -17,4 +17,5 @@ __all__ = [
     "download_band",
     "ZipCreator",
     "validate_date_range",
+    "extrair_geometria_shp",
 ]
