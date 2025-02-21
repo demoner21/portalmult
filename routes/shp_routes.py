@@ -17,31 +17,34 @@ async def download_image_from_shapefile(
     shapefile: UploadFile = File(..., description="Arquivo .shp"),
     shxfile: UploadFile = File(..., description="Arquivo .shx"),
     dbffile: UploadFile = File(..., description="Arquivo .dbf"),
+    cpgfile: UploadFile = File(None, description="Arquivo .cpg (opcional)"),
+    prjfile: UploadFile = File(None, description="Arquivo .prj (opcional)"),
     start_date: str = Query(..., description="Data de início no formato YYYY-MM-DD"),
     end_date: str = Query(..., description="Data de término no formato YYYY-MM-DD"),
     cloud_pixel_percentage: float = Query(..., description="Percentual máximo de nuvens permitido (0 a 100)")
 ):
     """
-    Faz o upload de arquivos .shp, .shx e .dbf, e baixa imagens referentes à geometria do shapefile.
+    Faz o upload de todos os arquivos do shapefile (.shp, .shx, .dbf, .cpg, .prj, etc.)
+    e baixa imagens referentes à geometria do shapefile.
     """
     try:
-        # Salvar os arquivos temporariamente
-        temp_dir = save_uploaded_files(shapefile, shxfile, dbffile)
+        # Lista de arquivos obrigatórios
+        arquivos_obrigatorios = [shapefile, shxfile, dbffile]
+
+        # Verifica se os arquivos obrigatórios estão presentes
+        for arquivo in arquivos_obrigatorios:
+            if arquivo is None:
+                raise HTTPException(status_code=400, detail=f"Arquivo {arquivo.filename} é obrigatório.")
+
+        # Salvar todos os arquivos no diretório temporário
+        temp_dir = save_uploaded_files([shapefile, shxfile, dbffile, cpgfile, prjfile])
 
         # Carregar o shapefile como uma geometria do Earth Engine
         shapefile_path = temp_dir / shapefile.filename
         ee_geometry = extrair_geometria_shp(shapefile_path)
 
-        # Se o shapefile não contiver geometrias válidas, usar uma região retangular
         if ee_geometry is None:
-            logger.warning("Shapefile inválido. Usando região retangular padrão.")
-            bbox = EarthEngineProcessor.create_bbox(0, 0)  # Coordenadas padrão (ajuste conforme necessário)
-            ee_geometry = ee.Geometry.Rectangle([
-                bbox["longitude_min"],
-                bbox["latitude_min"],
-                bbox["longitude_max"],
-                bbox["latitude_max"]
-            ])
+            raise HTTPException(status_code=400, detail="Shapefile inválido ou vazio.")
 
         # Validar datas
         try:
