@@ -51,11 +51,14 @@ async def download_band(image, band, region, nome_arquivo, scale=10, crs='EPSG:4
                                 break
                             await f.write(chunk)
                     logger.info(f"Banda {band} baixada com sucesso: {filename}")
+                    return filename  # Ensure this line returns the filename
                 else:
                     logger.error(f"Falha ao baixar a banda {band}. Status: {response.status}")
+                    return None
 
     except Exception as e:
         logger.error(f"Erro ao baixar a banda {band}: {e}", exc_info=True)
+        return None
 
 async def download_slope(image, region, nome_arquivo, scale=10, crs='EPSG:4326'):
     """

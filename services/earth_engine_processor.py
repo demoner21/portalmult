@@ -6,7 +6,7 @@ import glob
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import Dict, Tuple, Any, Optional
+from typing import Dict, Tuple, Any, Optional, List
 from utils.validators import bandas
 from utils.async_utils import download_band, download_slope
 from services.earth_engine_initializer import initialize_earth_engine
