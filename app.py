@@ -10,6 +10,7 @@ from utils.logging import setup_logging
 import structlog
 from middleware import add_logging_middleware, add_cors_middleware
 from services.earth_engine_initializer import initialize_earth_engine
+from routes.usuario_routes import router as usuario_router
 
 # Configuração do structlog
 structlog.configure(
@@ -53,6 +54,7 @@ app.include_router(map_router)
 app.include_router(shp_routes)
 app.include_router(predict_router)
 app.include_router(visualize_router)
+app.include_router(usuario_router)
 
 # Mensagem de inicialização
 logger.info("Servidor iniciado com sucesso!")

@@ -37,17 +37,54 @@ async def close_db_connection(connection):
         print(f"Erro ao fechar a conexão com o banco de dados: {e}")
         raise
 
-# Exemplo de uso
-async def main():
-    # Conecta ao banco de dados
+async def inserir_usuario(nome: str, email: str, senha: str, role: str = "user"):
     conn = await get_db_connection()
-
-    # Executa uma consulta de exemplo
     try:
-        result = await conn.fetch("SELECT * FROM usuario;")
-        print("Resultado da consulta:", result)
+        await conn.execute("""
+            INSERT INTO usuario (nome, email, senha, role)
+            VALUES ($1, $2, $3, $4)
+        """, nome, email, senha, role)
+        print(f"Usuário {nome} inserido com sucesso!")
     finally:
-        # Fecha a conexão
+        await close_db_connection(conn)
+
+async def verificar_email_existente(email: str) -> bool:
+    conn = await get_db_connection()
+    try:
+        resultado = await conn.fetchval("""
+            SELECT EXISTS(SELECT 1 FROM usuario WHERE email = $1)
+        """, email)
+        return resultado
+    except Exception as e:
+        print(f"Erro ao verificar email: {e}")
+        raise
+    finally:
+        await close_db_connection(conn)
+
+async def excluir_usuario_por_id(id: int):
+    conn = await get_db_connection()
+    try:
+        await conn.execute("""
+            DELETE FROM usuario WHERE id = $1
+        """, id)
+        print(f"Usuário com id {id} excluído com sucesso!")
+    except Exception as e:
+        print(f"Erro ao excluir usuário: {e}")
+        raise
+    finally:
+        await close_db_connection(conn)
+
+async def excluir_usuario_por_email(email: str):
+    conn = await get_db_connection()
+    try:
+        await conn.execute("""
+            DELETE FROM usuario WHERE email = $1
+        """, email)
+        print(f"Usuário com email {email} excluído com sucesso!")
+    except Exception as e:
+        print(f"Erro ao excluir usuário: {e}")
+        raise
+    finally:
         await close_db_connection(conn)
 
 if __name__ == "__main__":
