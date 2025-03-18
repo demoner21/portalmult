@@ -1,3 +1,5 @@
+import asyncpg
+
 from fastapi import APIRouter, HTTPException
 from database.database import (
     inserir_usuario,
