@@ -9,8 +9,21 @@ from database.database import (
 router = APIRouter()
 
 @router.post("/usuario/")
-async def cadastrar_usuario(nome: str, email: str, senha: str, role: str = "user"):
+async def cadastrar_usuario(
+    nome: str, 
+    email: str, 
+    confirmar_email: str,  # Novo campo para confirmação de e-mail
+    senha: str, 
+    role: str = "user"
+):
     try:
+        # Verifica se os e-mails são iguais
+        if email != confirmar_email:
+            raise HTTPException(
+                status_code=400,
+                detail="Os e-mails não coincidem."
+            )
+
         # Verifica se o email já existe
         if await verificar_email_existente(email):
             raise HTTPException(
