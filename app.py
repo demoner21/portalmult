@@ -1,6 +1,7 @@
 import ee
 from fastapi import FastAPI, HTTPException, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware import Middleware
@@ -50,8 +51,8 @@ app = FastAPI(
 )
 
 # Configurações do Keycloak
-KEYCLOAK_URL = "http://localhost:8080/realms/spin-realm"
-CLIENT_ID = "spin-client"
+KEYCLOAK_URL = "http://localhost:8080/realms/FastAPI-realm-real"
+CLIENT_ID = "FastAPI-realm-realm"
 CLIENT_SECRET = "your-client-secret"
 ALGORITHM = "RS256"
 
