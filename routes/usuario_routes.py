@@ -12,10 +12,11 @@ router = APIRouter()
 
 @router.post("/usuario/")
 async def cadastrar_usuario(
-    nome: str, 
-    email: str, 
+    nome: str,
+    email: str,
     confirmar_email: str,  # Novo campo para confirmação de e-mail
-    senha: str, 
+    senha: str,
+    confirmar_senha: str,
     role: str = "user"
 ):
     try:
@@ -33,13 +34,22 @@ async def cadastrar_usuario(
                 detail="Email já cadastrado."
             )
 
+                # Verifica se as senhas são iguais
+        if senha != confirmar_senha:
+            raise HTTPException(
+                status_code=400,
+                detail="As Senhas não coincidem."
+            )
+
         # Insere o usuário
         await inserir_usuario(nome, email, senha, role)
         return {"mensagem": "Usuário cadastrado com sucesso!"}
     except HTTPException as he:
         raise he
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Erro ao cadastrar usuário: {str(e)}")
+        raise HTTPException(
+            status_code=400, detail=f"Erro ao cadastrar usuário: {str(e)}")
+
 
 @router.delete("/usuario/{id}")
 async def deletar_usuario_por_id(id: int):
@@ -47,7 +57,9 @@ async def deletar_usuario_por_id(id: int):
         await excluir_usuario_por_id(id)
         return {"mensagem": f"Usuário com id {id} excluído com sucesso!"}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Erro ao excluir usuário: {str(e)}")
+        raise HTTPException(
+            status_code=400, detail=f"Erro ao excluir usuário: {str(e)}")
+
 
 @router.delete("/usuario/")
 async def deletar_usuario_por_email(email: str):
@@ -55,4 +67,5 @@ async def deletar_usuario_por_email(email: str):
         await excluir_usuario_por_email(email)
         return {"mensagem": f"Usuário com email {email} excluído com sucesso!"}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Erro ao excluir usuário: {str(e)}")
+        raise HTTPException(
+            status_code=400, detail=f"Erro ao excluir usuário: {str(e)}")

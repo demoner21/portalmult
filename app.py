@@ -1,7 +1,6 @@
 import ee
 from fastapi import FastAPI, HTTPException, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware import Middleware
@@ -13,11 +12,6 @@ import structlog
 from middleware import add_logging_middleware, add_cors_middleware
 from services.earth_engine_initializer import initialize_earth_engine
 from routes.usuario_routes import router as usuario_router
-
-
-from jose import JWTError, jwt
-from pydantic import BaseModel
-import httpx
 
 # Configuração do structlog
 structlog.configure(

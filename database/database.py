@@ -1,6 +1,10 @@
 import os
 import asyncpg
 from dotenv import load_dotenv
+from passlib.context import CryptContext
+
+# Configuração para hashing de senhas
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Carrega as variáveis de ambiente do arquivo .env
 load_dotenv()
@@ -40,10 +44,11 @@ async def close_db_connection(connection):
 async def inserir_usuario(nome: str, email: str, senha: str, role: str = "user"):
     conn = await get_db_connection()
     try:
+        hashed_password = get_password_hash(senha)
         await conn.execute("""
             INSERT INTO usuario (nome, email, senha, role)
             VALUES ($1, $2, $3, $4)
-        """, nome, email, senha, role)
+        """, nome, email, hashed_password, role)
         print(f"Usuário {nome} inserido com sucesso!")
     finally:
         await close_db_connection(conn)
@@ -57,6 +62,38 @@ async def verificar_email_existente(email: str) -> bool:
         return resultado
     except Exception as e:
         print(f"Erro ao verificar email: {e}")
+        raise
+    finally:
+        await close_db_connection(conn)
+
+async   def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """
+    Verifica se a senha fornecida corresponde ao hash armazenado.
+    """
+    return pwd_context.verify(plain_password, hashed_password)
+
+async   def get_password_hash(password: str) -> str:
+    """
+    Gera um hash para a senha fornecida.
+    """
+    return pwd_context.hash(password)
+
+async def get_user_by_email(email: str):
+    """
+    Busca um usuário no banco de dados pelo email.
+    
+    Args:
+        email (str): Email do usuário a ser buscado.
+    
+    Returns:
+        dict: Dados do usuário se encontrado, None caso contrário.
+    """
+    conn = await get_db_connection()
+    try:
+        user = await conn.fetchrow("SELECT * FROM usuario WHERE email = $1", email)
+        return user
+    except Exception as e:
+        logger.error(f"Erro ao buscar usuário por email: {e}")
         raise
     finally:
         await close_db_connection(conn)
