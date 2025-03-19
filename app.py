@@ -9,7 +9,7 @@ from fastapi_structlog.middleware import AccessLogMiddleware, CurrentScopeSetMid
 from routes import map_router, predict_router, visualize_router, shp_routes
 from utils.logging import setup_logging
 import structlog
-from middleware import add_logging_middleware, add_cors_middleware
+from middleware import add_cors_middleware
 from services.earth_engine_initializer import initialize_earth_engine
 from routes.usuario_routes import router as usuario_router
 
@@ -44,7 +44,7 @@ app = FastAPI(
     ],
 )
 
-add_logging_middleware(app)
+setup_logging()
 add_cors_middleware(app)
 
 # Montagem de arquivos estáticos (frontend de exemplo)

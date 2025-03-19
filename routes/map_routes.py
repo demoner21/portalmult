@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from typing import Optional, Dict  
-from middleware.request_queue import RequestQueue
+from utils.request_queue import RequestQueue
 from services.earth_engine_processor import EarthEngineProcessor
 from utils.zip_creator import ZipCreator
 from utils.data_range import validate_date_range

@@ -2,6 +2,9 @@ import os
 import asyncpg
 from dotenv import load_dotenv
 from passlib.context import CryptContext
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Configuração para hashing de senhas
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -44,12 +47,15 @@ async def close_db_connection(connection):
 async def inserir_usuario(nome: str, email: str, senha: str, role: str = "user"):
     conn = await get_db_connection()
     try:
-        hashed_password = get_password_hash(senha)
+        hashed_password = get_password_hash(senha)  # Remova o await
         await conn.execute("""
             INSERT INTO usuario (nome, email, senha, role)
             VALUES ($1, $2, $3, $4)
         """, nome, email, hashed_password, role)
         print(f"Usuário {nome} inserido com sucesso!")
+    except Exception as e:
+        print(f"Erro ao inserir usuário: {e}")
+        raise
     finally:
         await close_db_connection(conn)
 
@@ -66,13 +72,15 @@ async def verificar_email_existente(email: str) -> bool:
     finally:
         await close_db_connection(conn)
 
-async   def verify_password(plain_password: str, hashed_password: str) -> bool:
+def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     Verifica se a senha fornecida corresponde ao hash armazenado.
     """
-    return pwd_context.verify(plain_password, hashed_password)
+    result = pwd_context.verify(plain_password, hashed_password)
+    logger.info(f"Resultado da verificação de senha: {result}")
+    return result
 
-async   def get_password_hash(password: str) -> str:
+def get_password_hash(password: str) -> str:
     """
     Gera um hash para a senha fornecida.
     """
@@ -91,6 +99,7 @@ async def get_user_by_email(email: str):
     conn = await get_db_connection()
     try:
         user = await conn.fetchrow("SELECT * FROM usuario WHERE email = $1", email)
+        logger.info(f"Usuário encontrado: {user}")
         return user
     except Exception as e:
         logger.error(f"Erro ao buscar usuário por email: {e}")

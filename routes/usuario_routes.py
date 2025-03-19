@@ -1,5 +1,11 @@
 import asyncpg
 
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from database.database import get_user_by_email, verify_password
+from utils.jwt_utils import create_access_token, get_current_user
+from datetime import timedelta
+
 from fastapi import APIRouter, HTTPException
 from database.database import (
     inserir_usuario,
@@ -9,6 +15,32 @@ from database.database import (
 )
 
 router = APIRouter()
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+@router.post("/token")
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = await get_user_by_email(form_data.username)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Email ou senha incorretos",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    if not verify_password(form_data.password, user["senha"]):  # Remova o await
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Email ou senha incorretos",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    access_token_expires = timedelta(minutes=30)
+    access_token = create_access_token(
+        data={"sub": user["email"]}, expires_delta=access_token_expires
+    )
+    
+    return {"access_token": access_token, "token_type": "bearer"}
 
 @router.post("/usuario/")
 async def cadastrar_usuario(
@@ -60,6 +92,9 @@ async def deletar_usuario_por_id(id: int):
         raise HTTPException(
             status_code=400, detail=f"Erro ao excluir usuário: {str(e)}")
 
+@router.get("/usuario/")
+async def get_current_user_info(current_user: dict = Depends(get_current_user)):
+    return current_user
 
 @router.delete("/usuario/")
 async def deletar_usuario_por_email(email: str):
