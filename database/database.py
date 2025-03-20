@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from passlib.context import CryptContext
 import logging
 import os
+from utils.exception_utils import handle_exceptions
 
 logger = logging.getLogger(__name__)
 
@@ -27,15 +28,13 @@ def with_db_connection(func):
     Decorador para gerenciar a conexão com o banco de dados.
     """
     @wraps(func)
+    @handle_exceptions
     async def wrapper(*args, **kwargs):
         conn = None
         try:
             conn = await asyncpg.connect(**DB_CONFIG)
             logger.info("Conexão com o banco de dados estabelecida com sucesso!")
             return await func(conn, *args, **kwargs)
-        except Exception as e:
-            logger.error(f"Erro ao executar a função: {e}", exc_info=True)
-            raise
         finally:
             if conn:
                 await conn.close()
