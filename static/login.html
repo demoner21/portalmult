@@ -55,10 +55,10 @@
                 <input type="email" id="confirmEmail" name="confirmEmail" required>
                 
                 <label for="password">Senha:</label>
-                <input type="password" id="password" name="password" required>
+                <input type="password" id="password" name="password" required>  <!-- ID duplicado -->
                 
                 <label for="confirmPassword">Confirmar Senha:</label>
-                <input type="password" id="confirmPassword" name="confirmPassword" required>
+                <input type="password" id="confirmPassword" name="confirmPassword" required>  <!-- ID único -->
                 
                 <button type="submit">Cadastrar</button>
             </form>
@@ -113,7 +113,7 @@
         // Lógica de Cadastro
         document.getElementById('registerForm').addEventListener('submit', async function(event) {
             event.preventDefault();
-            
+                
             const formData = {
                 nome: document.getElementById('name').value,
                 email: document.getElementById('email').value,
@@ -122,26 +122,24 @@
                 confirmar_senha: document.getElementById('confirmPassword').value,
                 role: "user"
             };
-
+        
             try {
                 const response = await fetch('/usuario/', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
+                        'Content-Type': 'application/json',  // Define o tipo de conteúdo
                     },
-                    body: JSON.stringify(formData)
+                    body: JSON.stringify(formData)  // Envia como JSON
                 });
-
+            
                 if (response.ok) {
-                    const data = await response.json();
-                    alert(data.mensagem);  // Exibe mensagem de sucesso
-                    toggleForm('loginFormContainer');  // Volta para o formulário de login
+                    alert("Cadastro realizado com sucesso!");
+                    toggleForm('loginFormContainer');
                 } else {
                     const errorData = await response.json();
-                    document.getElementById('registerErrorMessage').textContent = errorData.detail || "Erro ao cadastrar usuário.";
+                    document.getElementById('registerErrorMessage').textContent = errorData.detail;
                 }
             } catch (error) {
-                console.error('Erro na requisição:', error);
                 document.getElementById('registerErrorMessage').textContent = "Erro ao conectar ao servidor.";
             }
         });

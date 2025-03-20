@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Body
 from database.database import (
     inserir_usuario,
     verificar_email_existente,
@@ -12,12 +12,18 @@ router = APIRouter()
 @router.post("/usuario/")
 @handle_exceptions
 async def cadastrar_usuario(
-    nome: str = Query(..., description="Nome do usuário"),
-    email: str = Query(..., description="Email do usuário"),
-    confirmar_email: str = Query(..., description="Confirmação do email"),
-    senha: str = Query(..., description="Senha do usuário"),
-    confirmar_senha: str = Query(..., description="Confirmação da senha"),
-    role: str = Query("user", description="Papel do usuário (padrão: 'user')")
+    nome: str,
+    email: str,
+    confirmar_email: str,
+    senha: str,
+    confirmar_senha: str,
+    role: str = "user",
+#    nome: str = Query(..., description="Nome do usuário"),
+#    email: str = Query(..., description="Email do usuário"),
+#    confirmar_email: str = Query(..., description="Confirmação do email"),
+#    senha: str = Query(..., description="Senha do usuário"),
+#    confirmar_senha: str = Query(..., description="Confirmação da senha"),
+#    role: str = Query("user", description="Papel do usuário (padrão: 'user')")
 ):
     # Verifica se os e-mails são iguais
     if email != confirmar_email:
