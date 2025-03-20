@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta
-from jose import jwt
+from jose import jwt, JWTError
 from pydantic import BaseModel
 from fastapi.security import OAuth2PasswordBearer
 from fastapi import Depends, HTTPException, status
 from database.database import get_user_by_email
+from typing import Optional
 
 # Configurações para JWT
 SECRET_KEY = "sua_chave_secreta"

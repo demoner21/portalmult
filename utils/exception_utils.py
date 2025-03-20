@@ -9,7 +9,7 @@ def handle_exceptions(func):
     Decorador para centralizar o tratamento de exceções.
     Preserva a assinatura da função original para o FastAPI.
     """
-    @wraps(func)  # Preserva os metadados da função original
+    @wraps(func)
     async def wrapper(*args, **kwargs):
         try:
             return await func(*args, **kwargs)

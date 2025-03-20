@@ -6,6 +6,8 @@ from utils.logging import logger
 from middleware import add_cors_middleware, get_middlewares
 from services.earth_engine_initializer import initialize_earth_engine
 
+from routes.auth_routes import router as auth_router
+
 # Inicializa o Earth Engine
 initialize_earth_engine()
 
@@ -23,6 +25,8 @@ app.mount("/example", StaticFiles(directory="static", html=True), name="static")
 
 for router in load_routes():
     app.include_router(router)
+
+app.include_router(auth_router)
 
 # Mensagem de inicialização
 logger.info("Servidor iniciado com sucesso!")
