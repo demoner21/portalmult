@@ -1,12 +1,13 @@
-from .map_routes import router as map_router
-from .predict_routes import router as predict_router
-from .visualize_routes import router as visualize_router
-from .shp_routes import router as shp_routes
+import importlib
+import pkgutil
+from fastapi import APIRouter
 
-# Define o que será importado com `from routes import *`
-__all__ = [
-    "map_router",
-    "predict_router",
-    "visualize_router",
-    "shp_routes",
-]
+def load_routes():
+    routers = []
+    for _, module_name, _ in pkgutil.iter_modules(__path__):
+        module = importlib.import_module(f"{__name__}.{module_name}")
+        if hasattr(module, "router"):
+            routers.append(module.router)
+    return routers
+
+__all__ = ["load_routes"]

@@ -16,6 +16,9 @@ class BandDownloader:
         self.region = region
         self.nome_arquivo = nome_arquivo
 
+    async def download_band_wrapper(image, band, region, nome_arquivo):
+        return await download_band(image, band, region, nome_arquivo)
+
     async def download_all_bands(self, bandas: Dict[str, float]) -> List[str]:
         """
         Faz o download de todas as bandas especificadas.
@@ -26,7 +29,6 @@ class BandDownloader:
         Returns:
             List[str]: Lista com os nomes dos arquivos baixados.
         """
-        tasks = [download_band(self.image, band, self.region, self.nome_arquivo) for band in bandas.keys()]
+        tasks = [download_band_wrapper(self.image, band, self.region, self.nome_arquivo) for band in bandas.keys()]
         downloaded_files = await asyncio.gather(*tasks)
-        #logger.info(f"Downloaded files: {downloaded_files}")  # Add this line for debugging
         return [file for file in downloaded_files if file is not None]

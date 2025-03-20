@@ -1,8 +1,9 @@
-import os
+from functools import wraps
 import asyncpg
 from dotenv import load_dotenv
 from passlib.context import CryptContext
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -21,56 +22,61 @@ DB_CONFIG = {
     "port": os.getenv("DB_PORT"),
 }
 
-async def get_db_connection():
+def with_db_connection(func):
     """
-    Cria e retorna uma conexão com o banco de dados.
+    Decorador para gerenciar a conexão com o banco de dados.
     """
-    try:
-        connection = await asyncpg.connect(**DB_CONFIG)
-        print("Conexão com o banco de dados estabelecida com sucesso!")
-        return connection
-    except Exception as e:
-        print(f"Erro ao conectar ao banco de dados: {e}")
-        raise
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        conn = None
+        try:
+            conn = await asyncpg.connect(**DB_CONFIG)
+            logger.info("Conexão com o banco de dados estabelecida com sucesso!")
+            return await func(conn, *args, **kwargs)
+        except Exception as e:
+            logger.error(f"Erro ao executar a função: {e}", exc_info=True)
+            raise
+        finally:
+            if conn:
+                await conn.close()
+                logger.info("Conexão com o banco de dados fechada com sucesso!")
+    return wrapper
 
-async def close_db_connection(connection):
-    """
-    Fecha a conexão com o banco de dados.
-    """
-    try:
-        await connection.close()
-        print("Conexão com o banco de dados fechada com sucesso!")
-    except Exception as e:
-        print(f"Erro ao fechar a conexão com o banco de dados: {e}")
-        raise
+@with_db_connection
+async def inserir_usuario(conn, nome: str, email: str, senha: str, role: str = "user"):
+    hashed_password = get_password_hash(senha)
+    await conn.execute("""
+        INSERT INTO usuario (nome, email, senha, role)
+        VALUES ($1, $2, $3, $4)
+    """, nome, email, hashed_password, role)
+    logger.info(f"Usuário {nome} inserido com sucesso!")
 
-async def inserir_usuario(nome: str, email: str, senha: str, role: str = "user"):
-    conn = await get_db_connection()
-    try:
-        hashed_password = get_password_hash(senha)  # Remova o await
-        await conn.execute("""
-            INSERT INTO usuario (nome, email, senha, role)
-            VALUES ($1, $2, $3, $4)
-        """, nome, email, hashed_password, role)
-        print(f"Usuário {nome} inserido com sucesso!")
-    except Exception as e:
-        print(f"Erro ao inserir usuário: {e}")
-        raise
-    finally:
-        await close_db_connection(conn)
+@with_db_connection
+async def verificar_email_existente(conn, email: str) -> bool:
+    resultado = await conn.fetchval("""
+        SELECT EXISTS(SELECT 1 FROM usuario WHERE email = $1)
+    """, email)
+    return resultado
 
-async def verificar_email_existente(email: str) -> bool:
-    conn = await get_db_connection()
-    try:
-        resultado = await conn.fetchval("""
-            SELECT EXISTS(SELECT 1 FROM usuario WHERE email = $1)
-        """, email)
-        return resultado
-    except Exception as e:
-        print(f"Erro ao verificar email: {e}")
-        raise
-    finally:
-        await close_db_connection(conn)
+@with_db_connection
+async def get_user_by_email(conn, email: str):
+    user = await conn.fetchrow("SELECT * FROM usuario WHERE email = $1", email)
+    logger.info(f"Usuário encontrado: {user}")
+    return user
+
+@with_db_connection
+async def excluir_usuario_por_id(conn, id: int):
+    await conn.execute("""
+        DELETE FROM usuario WHERE id = $1
+    """, id)
+    logger.info(f"Usuário com id {id} excluído com sucesso!")
+
+@with_db_connection
+async def excluir_usuario_por_email(conn, email: str):
+    await conn.execute("""
+        DELETE FROM usuario WHERE email = $1
+    """, email)
+    logger.info(f"Usuário com email {email} excluído com sucesso!")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
@@ -85,54 +91,3 @@ def get_password_hash(password: str) -> str:
     Gera um hash para a senha fornecida.
     """
     return pwd_context.hash(password)
-
-async def get_user_by_email(email: str):
-    """
-    Busca um usuário no banco de dados pelo email.
-    
-    Args:
-        email (str): Email do usuário a ser buscado.
-    
-    Returns:
-        dict: Dados do usuário se encontrado, None caso contrário.
-    """
-    conn = await get_db_connection()
-    try:
-        user = await conn.fetchrow("SELECT * FROM usuario WHERE email = $1", email)
-        logger.info(f"Usuário encontrado: {user}")
-        return user
-    except Exception as e:
-        logger.error(f"Erro ao buscar usuário por email: {e}")
-        raise
-    finally:
-        await close_db_connection(conn)
-
-async def excluir_usuario_por_id(id: int):
-    conn = await get_db_connection()
-    try:
-        await conn.execute("""
-            DELETE FROM usuario WHERE id = $1
-        """, id)
-        print(f"Usuário com id {id} excluído com sucesso!")
-    except Exception as e:
-        print(f"Erro ao excluir usuário: {e}")
-        raise
-    finally:
-        await close_db_connection(conn)
-
-async def excluir_usuario_por_email(email: str):
-    conn = await get_db_connection()
-    try:
-        await conn.execute("""
-            DELETE FROM usuario WHERE email = $1
-        """, email)
-        print(f"Usuário com email {email} excluído com sucesso!")
-    except Exception as e:
-        print(f"Erro ao excluir usuário: {e}")
-        raise
-    finally:
-        await close_db_connection(conn)
-
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
