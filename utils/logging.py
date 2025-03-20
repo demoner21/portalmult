@@ -13,9 +13,10 @@ def setup_logging():
     
     structlog.configure(
         processors=[
-            structlog.stdlib.filter_by_level,  # Filtra logs por nível
-            structlog.processors.TimeStamper(fmt="iso"),  # Adiciona timestamp
-            structlog.processors.JSONRenderer()  # Formata logs como JSON
+            structlog.stdlib.filter_by_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.JSONRenderer(),
+            structlog.contextvars.merge_contextvars,
         ],
         context_class=dict,
         logger_factory=structlog.stdlib.LoggerFactory(),
