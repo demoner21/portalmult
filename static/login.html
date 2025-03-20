@@ -55,7 +55,7 @@
                 <input type="email" id="confirmEmail" name="confirmEmail" required>
                 
                 <label for="password">Senha:</label>
-                <input type="password" id="password" name="password" required>  <!-- ID duplicado -->
+                <input type="password" id="password" name="password" required>    <!-- ID duplicado -->
                 
                 <label for="confirmPassword">Confirmar Senha:</label>
                 <input type="password" id="confirmPassword" name="confirmPassword" required>  <!-- ID único -->
@@ -115,11 +115,11 @@
             event.preventDefault();
                 
             const formData = {
-                nome: document.getElementById('name').value,
-                email: document.getElementById('email').value,
-                confirmar_email: document.getElementById('confirmEmail').value,
-                senha: document.getElementById('password').value,
-                confirmar_senha: document.getElementById('confirmPassword').value,
+                nome: document.getElementById('name').value.trim(),
+                email: document.getElementById('email').value.trim(),
+                confirmar_email: document.getElementById('confirmEmail').value.trim(),
+                senha: document.getElementById('password').value.trim(), // Senha em texto plano
+                confirmar_senha: document.getElementById('confirmPassword').value.trim(), // Senha em texto plano
                 role: "user"
             };
         
@@ -127,9 +127,9 @@
                 const response = await fetch('/usuario/', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',  // Define o tipo de conteúdo
+                        'Content-Type': 'application/json',  // Garanta este header
                     },
-                    body: JSON.stringify(formData)  // Envia como JSON
+                    body: JSON.stringify(formData)  // Envie como JSON
                 });
             
                 if (response.ok) {
