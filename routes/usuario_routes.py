@@ -20,8 +20,9 @@ class UsuarioCreateRequest(BaseModel):
 
 @router.post("/usuario/")
 @handle_exceptions
-async def cadastrar_usuario(usuario: UsuarioCreateRequest):
-    # Validação de e-mail
+async def cadastrar_usuario(usuario: UsuarioCreateRequest = Body(...)):
+    print("Dados recebidos:", usuario.dict())
+    
     if usuario.email != usuario.confirmar_email:
         raise HTTPException(status_code=400, detail="Os e-mails não coincidem.")
     
