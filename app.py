@@ -18,7 +18,6 @@ app = FastAPI(
 )
 
 setup_logging()
-add_cors_middleware(app)
 
 # Montagem de arquivos estáticos (frontend de exemplo)
 app.mount("/example", StaticFiles(directory="static", html=True), name="static")
@@ -27,6 +26,12 @@ for router in load_routes():
     app.include_router(router)
 
 app.include_router(auth_router)
+
+add_cors_middleware(app)
+
+@app.get("/")
+def read_root():
+    return {"message": "API Online! 🚀"}
 
 # Mensagem de inicialização
 logger.info("Servidor iniciado com sucesso!")
