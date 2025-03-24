@@ -25,15 +25,15 @@
 </head>
 <body>
     <main class="container">
-        <!-- Formulário de Login -->
+        
         <div id="loginFormContainer" class="form-container active">
             <h1>Login</h1>
             <form id="loginForm">
                 <label for="username">Email:</label>
                 <input type="text" id="username" name="username" required>
                 
-                <label for="password">Senha:</label>
-                <input type="password" id="password" name="password" required>
+                <label for="loginPassword">Senha:</label>
+                <input type="password" id="loginPassword" name="password" required>
                 
                 <button type="submit">Login</button>
             </form>
@@ -54,11 +54,11 @@
                 <label for="confirmEmail">Confirmar Email:</label>
                 <input type="email" id="confirmEmail" name="confirmEmail" required>
                 
-                <label for="password">Senha:</label>
-                <input type="password" id="password" name="password" required>    <!-- ID duplicado -->
+                <label for="registerPassword">Senha:</label>
+                <input type="password" id="registerPassword" name="password" required>
                 
                 <label for="confirmPassword">Confirmar Senha:</label>
-                <input type="password" id="confirmPassword" name="confirmPassword" required>  <!-- ID único -->
+                <input type="password" id="confirmPassword" name="confirmPassword" required>
                 
                 <button type="submit">Cadastrar</button>
             </form>
@@ -79,11 +79,17 @@
         // Lógica de Login
         document.getElementById('loginForm').addEventListener('submit', async function(event) {
             event.preventDefault();
-            
-            const formData = new URLSearchParams();
-            formData.append('username', document.getElementById('username').value);
-            formData.append('password', document.getElementById('password').value);
-
+                
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('loginPassword').value.trim();
+            const errorElement = document.getElementById('loginErrorMessage');
+                
+            // Validação básica
+            if (!username || !password) {
+                errorElement.textContent = "Por favor, preencha todos os campos.";
+                return;
+            }
+        
             try {
                 const response = await fetch('/token', {
                     method: 'POST',
@@ -91,47 +97,68 @@
                         'Content-Type': 'application/x-www-form-urlencoded',
                     },
                     body: new URLSearchParams({
-                        username: document.getElementById('username').value,
-                        password: document.getElementById('password').value
+                        username: username,
+                        password: password,
+                        grant_type: 'password'
                     })
                 });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    localStorage.setItem('access_token', data.access_token);
-                    window.location.href = '/example';  // Redireciona para a página principal
-                } else {
+            
+                if (!response.ok) {
                     const errorData = await response.json();
-                    document.getElementById('loginErrorMessage').textContent = errorData.detail || "Erro ao fazer login.";
+                    errorElement.textContent = errorData.detail || "Erro ao fazer login. Verifique suas credenciais.";
+                    return;
                 }
+            
+                const data = await response.json();
+                
+                // Armazena o token no localStorage
+                localStorage.setItem('access_token', data.access_token);
+                
+                // Redireciona para a página principal
+                window.location.href = '/example/index.html';
+                
             } catch (error) {
                 console.error('Erro na requisição:', error);
-                document.getElementById('loginErrorMessage').textContent = "Erro ao conectar ao servidor.";
+                errorElement.textContent = "Erro ao conectar ao servidor. Tente novamente.";
             }
         });
 
-        // Lógica de Cadastro
+
         document.getElementById('registerForm').addEventListener('submit', async function(event) {
             event.preventDefault();
-                
+
+            
+            const nome = document.getElementById('name').value.trim();
+            const email = document.getElementById('email').value.trim();
+            const confirmarEmail = document.getElementById('confirmEmail').value.trim();
+            const senha = document.getElementById('registerPassword').value.trim()
+            const confirmarSenha = document.getElementById('confirmPassword').value.trim();  // Campo de confirmação
+
+            
+            if (senha === "" || confirmarSenha === "") {
+                document.getElementById('registerErrorMessage').textContent = "Preencha ambos os campos de senha.";
+                return;
+            }
+
             const formData = {
-                nome: document.getElementById('name').value.trim(),
-                email: document.getElementById('email').value.trim(),
-                confirmar_email: document.getElementById('confirmEmail').value.trim(),
-                senha: document.getElementById('password').value.trim(), // Senha em texto plano
-                confirmar_senha: document.getElementById('confirmPassword').value.trim(), // Senha em texto plano
+                nome: nome,
+                email: email,
+                confirmar_email: confirmarEmail,
+                senha: senha,
+                confirmar_senha: confirmarSenha,
                 role: "user"
             };
-        
+
+
             try {
                 const response = await fetch('/usuario/', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',  // Garanta este header
+                        'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify(formData)  // Envie como JSON
+                    body: JSON.stringify(formData)
                 });
-            
+
                 if (response.ok) {
                     alert("Cadastro realizado com sucesso!");
                     toggleForm('loginFormContainer');
