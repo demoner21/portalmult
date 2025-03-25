@@ -5,6 +5,7 @@ from passlib.context import CryptContext
 import logging
 import os
 from utils.exception_utils import handle_exceptions
+import zxcvbn
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,15 @@ DB_CONFIG = {
     "host": os.getenv("DB_HOST"),
     "port": os.getenv("DB_PORT"),
 }
+
+def is_password_strong(password: str) -> bool:
+    result = zxcvbn.zxcvbn(password)
+    return result["score"] >= 3  # Requer senha moderada/forte
+
+def get_password_hash(password: str) -> str:
+    if not is_password_strong(password):
+        raise ValueError("A senha não atende aos requisitos de segurança")
+    return pwd_context.hash(password)
 
 def with_db_connection(func):
     """
