@@ -12,7 +12,7 @@ from routes.auth_routes import router as auth_router
 initialize_earth_engine()
 
 app = FastAPI(
-    title="Spin Mining Susano",
+    title="Portal Multiespectral",
     version="0.1.0",
     middleware=get_middlewares(),
 )
