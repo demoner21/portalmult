@@ -26,7 +26,7 @@ DB_CONFIG = {
 
 def is_password_strong(password: str) -> bool:
     result = zxcvbn.zxcvbn(password)
-    return result["score"] >= 3  # Requer senha moderada/forte
+    return result["score"] >= 3
 
 def get_password_hash(password: str) -> str:
     if not is_password_strong(password):
