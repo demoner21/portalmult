@@ -12,7 +12,7 @@ from routes.auth_routes import router as auth_router
 initialize_earth_engine()
 
 app = FastAPI(
-    title="Portal Multiespectral",
+    title="Portal Multespectral",
     version="0.1.0",
     middleware=get_middlewares(),
 )
@@ -29,9 +29,9 @@ app.include_router(auth_router)
 
 add_cors_middleware(app)
 
-@app.get("/")
-def read_root():
-    return {"message": "API Online! 🚀"}
+# Adicione no final do app.py
+for route in app.routes:
+    print(f"{route.path} -> {route.name}")
 
 # Mensagem de inicialização
 logger.info("Servidor iniciado com sucesso!")
