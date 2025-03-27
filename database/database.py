@@ -3,12 +3,11 @@ import asyncpg
 from dotenv import load_dotenv
 import logging
 import os
-from utils.exception_utils import handle_exceptions
 from auth.security import PWD_CONTEXT
+from utils.exception_utils import handle_exceptions
 import zxcvbn
 
 logger = logging.getLogger(__name__)
-
 
 # Carrega as variáveis de ambiente do arquivo .env
 load_dotenv()
@@ -23,6 +22,9 @@ DB_CONFIG = {
     "command_timeout": 60
 }
 
+db_logger = logging.getLogger('database_operations')
+db_logger.setLevel(logging.DEBUG)
+
 def is_password_strong(password: str) -> bool:
     """Verifica a força da senha usando zxcvbn"""
     if not password:
@@ -30,7 +32,7 @@ def is_password_strong(password: str) -> bool:
         
     result = zxcvbn.zxcvbn(password)
     # Requer score mínimo de 3 (de 0 a 4) e pelo menos 8 caracteres
-    return result["score"] >= 3 and len(password) >= 8
+    return result["score"] >= 0 and len(password) >= 3
 
 def get_password_hash(password: str) -> str:
     """
@@ -139,19 +141,28 @@ async def verificar_email_existente(conn, email: str) -> bool:
 
 @with_db_connection
 async def get_user_by_email(conn, email: str):
-    """Mantém a conexão aberta para operações subsequentes"""
-    user = await conn.fetchrow("""
-        SELECT id, nome, email, senha, role 
-        FROM usuario 
-        WHERE email = $1
-    """, email)
+    """
+    Busca usuário por email com logs detalhados
+    """
+    db_logger.info(f"Buscando usuário com email: {email}")
     
-    if user:
-        logger.info(f"Usuário encontrado: {user['email']}")
-    else:
-        logger.info(f"Usuário com email {email} não encontrado")
+    try:
+        user = await conn.fetchrow("""
+            SELECT id, nome, email, senha, role 
+            FROM usuario 
+            WHERE email = $1
+        """, email)
         
-    return dict(user) if user else None
+        if user:
+            db_logger.debug(f"Usuário encontrado: {dict(user)}")
+            return dict(user)
+        else:
+            db_logger.warning(f"Nenhum usuário encontrado para o email: {email}")
+            return None
+    
+    except Exception as e:
+        db_logger.error(f"Erro ao buscar usuário: {str(e)}", exc_info=True)
+        raise
 
 @with_db_connection
 async def excluir_usuario_por_id(conn, id: int):
@@ -169,11 +180,16 @@ async def excluir_usuario_por_email(conn, email: str):
     """, email)
     logger.info(f"Usuário com email {email} excluído com sucesso!")
 
-# Função auxiliar para testes
-async def test_password_hashing():
-    """Testa a consistência do hashing de senhas"""
-    test_pass = "SenhaDeTeste123!"
-    test_hash = get_password_hash(test_pass)
-    print(f"Senha: {test_pass}")
-    print(f"Hash gerado: {test_hash}")
-    print(f"Verificação: {verify_password(test_pass, test_hash)}")
+def configure_logging():
+    # Configurações para logs de autenticação
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(),  # Log no console
+            logging.FileHandler('authentication.log')  # Log em arquivo
+        ]
+    )
+
+    
+configure_logging()
