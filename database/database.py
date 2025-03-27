@@ -1,21 +1,14 @@
 from functools import wraps
 import asyncpg
 from dotenv import load_dotenv
-from passlib.context import CryptContext
 import logging
 import os
 from utils.exception_utils import handle_exceptions
+from auth.security import PWD_CONTEXT
 import zxcvbn
 
 logger = logging.getLogger(__name__)
 
-# Configuração única e consistente para hashing de senhas
-pwd_context = CryptContext(
-    schemes=["bcrypt"],
-    deprecated="auto",
-    bcrypt__rounds=12,  # Número padrão de rounds para o bcrypt
-    bcrypt__ident="2b"  # Usar versão 2b do bcrypt (mais recente)
-)
 
 # Carrega as variáveis de ambiente do arquivo .env
 load_dotenv()
@@ -27,6 +20,7 @@ DB_CONFIG = {
     "database": os.getenv("DB_NAME"),
     "host": os.getenv("DB_HOST"),
     "port": os.getenv("DB_PORT"),
+    "command_timeout": 60
 }
 
 def is_password_strong(password: str) -> bool:
@@ -62,7 +56,7 @@ def get_password_hash(password: str) -> str:
         )
     
     # Remove espaços em branco extras e gera o hash
-    return pwd_context.hash(password.strip())
+    return PWD_CONTEXT.hash(password.strip())
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
@@ -80,7 +74,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         
     try:
         # Remove espaços em branco extras e verifica
-        return pwd_context.verify(plain_password.strip(), hashed_password)
+        return PWD_CONTEXT.verify(plain_password.strip(), hashed_password)
     except Exception as e:
         logger.error(f"Erro na verificação de senha: {str(e)}")
         return False
@@ -96,15 +90,17 @@ def with_db_connection(func):
         conn = None
         try:
             conn = await asyncpg.connect(**DB_CONFIG)
-            logger.info("Conexão com o banco de dados estabelecida com sucesso!")
-            return await func(conn, *args, **kwargs)
+            logger.info("Conexão estabelecida")
+            result = await func(conn, *args, **kwargs)
+            logger.info("Operação concluída")  # Novo log
+            return result  # Mantenha a conexão aberta até aqui
         except Exception as e:
-            logger.error(f"Erro na operação do banco de dados: {str(e)}")
+            logger.error(f"Erro: {str(e)}")
             raise
         finally:
             if conn:
                 await conn.close()
-                logger.info("Conexão com o banco de dados fechada com sucesso!")
+                logger.info("Conexão fechada")
     return wrapper
 
 @with_db_connection
@@ -143,7 +139,7 @@ async def verificar_email_existente(conn, email: str) -> bool:
 
 @with_db_connection
 async def get_user_by_email(conn, email: str):
-    """Obtém um usuário pelo email"""
+    """Mantém a conexão aberta para operações subsequentes"""
     user = await conn.fetchrow("""
         SELECT id, nome, email, senha, role 
         FROM usuario 
@@ -155,7 +151,7 @@ async def get_user_by_email(conn, email: str):
     else:
         logger.info(f"Usuário com email {email} não encontrado")
         
-    return user
+    return dict(user) if user else None
 
 @with_db_connection
 async def excluir_usuario_por_id(conn, id: int):

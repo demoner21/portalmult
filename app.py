@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, HTTPException, status
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from routes import load_routes
 from utils.logging import setup_logging

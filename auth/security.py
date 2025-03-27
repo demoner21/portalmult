@@ -1,18 +1,26 @@
 from datetime import datetime, timedelta, timezone
 from passlib.context import CryptContext
+from fastapi.security import OAuth2PasswordBearer
 from jose import jwt
 from auth.config import settings
 import secrets
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+PWD_CONTEXT = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__rounds=12,
+    bcrypt__ident="2b"
+)
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
 
 def get_password_hash(password: str) -> str:
     """Gera um hash seguro para a senha usando bcrypt"""
-    return pwd_context.hash(password)
+    return PWD_CONTEXT.hash(password)
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifica se a senha corresponde ao hash"""
-    return pwd_context.verify(plain_password, hashed_password)
+    return PWD_CONTEXT.verify(plain_password, hashed_password)
 
 def create_token(
     data: dict,
