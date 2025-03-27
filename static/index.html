@@ -110,14 +110,19 @@
                     this.is_processing_map = true;
                     this.mapUrl = null;
                     this.errorMessage = '';
-    
+                        
+                    // Formatar as datas corretamente (juntar com vírgula)
+                    const dateRange = `${this.mapParams.dateStart},${this.mapParams.dateEnd}`;
+                        
                     const params = new URLSearchParams();
                     params.append('latitude', this.mapParams.latitude);
                     params.append('longitude', this.mapParams.longitude);
-                    params.append('data', this.mapParams.dateStart);
-                    params.append('data', this.mapParams.dateEnd);
-                    params.append('filter', this.mapParams.filter);
-    
+                    params.append('data', dateRange);  // Envia como um único parâmetro
+                        
+                    if (this.mapParams.filter) {
+                        params.append('filter', this.mapParams.filter);
+                    }
+                
                     try {
                         const response = await fetch(`/get_map?${params.toString()}`, {
                             headers: {
@@ -127,20 +132,20 @@
                             method: "GET",
                             credentials: "omit",
                         });
-    
+                    
                         if (response.ok) {
                             const blob = await response.blob();
                             const urlCreator = window.URL || window.webkitURL;
                             this.mapUrl = urlCreator.createObjectURL(blob);
                         } else {
                             const data = await response.json();
-                            this.errorMessage = data.detail;
+                            this.errorMessage = data.detail || "Erro ao processar o mapa";
                         }
                     } catch (error) {
                         this.errorMessage = "Erro ao processar a requisição: " + error.message;
                         console.error(error);
                     }
-    
+                
                     this.is_processing_map = false;
                 },
     

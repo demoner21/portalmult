@@ -230,7 +230,7 @@
                 registerButton.disabled = true;
                 registerButton.textContent = "Registrando...";
                 
-                const response = await fetch('/usuarios/', {
+                const response = await fetch('/auth/register', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

@@ -3,8 +3,8 @@ import asyncpg
 from dotenv import load_dotenv
 import logging
 import os
-from auth.security import PWD_CONTEXT
 from utils.exception_utils import handle_exceptions
+from passlib.context import CryptContext
 import zxcvbn
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,7 @@ DB_CONFIG = {
 
 db_logger = logging.getLogger('database_operations')
 db_logger.setLevel(logging.DEBUG)
+PWD_CONTEXT = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def is_password_strong(password: str) -> bool:
     """Verifica a força da senha usando zxcvbn"""
@@ -179,6 +180,25 @@ async def excluir_usuario_por_email(conn, email: str):
         DELETE FROM usuario WHERE email = $1
     """, email)
     logger.info(f"Usuário com email {email} excluído com sucesso!")
+
+@with_db_connection
+async def update_user_password(conn, email: str, new_password: str):
+    """Atualiza a senha de um usuário"""
+    hashed_password = get_password_hash(new_password)
+    await conn.execute("""
+        UPDATE usuario 
+        SET senha = $1
+        WHERE email = $2
+    """, hashed_password, email)
+    logger.info(f"Senha atualizada para o usuário {email}")
+
+@with_db_connection
+async def get_user_roles(conn, email: str) -> list[str]:
+    """Obtém os papéis/permissões de um usuário"""
+    roles = await conn.fetchval("""
+        SELECT role FROM usuario WHERE email = $1
+    """, email)
+    return roles.split(',') if roles else ['user']
 
 def configure_logging():
     # Configurações para logs de autenticação
