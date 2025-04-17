@@ -4,91 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Portal Multiespectral - Análise Completa</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <link rel="stylesheet" href="/static/css/styles.css">
     <meta name="referrer" content="no-referrer">
     <style>
-        body {
-            display: grid;
-            grid-template-columns: 350px 1fr;
-            height: 100vh;
-            margin: 0;
-            font-family: sans-serif;
-        }
-        aside {
-            background: #f5f5f5;
-            padding: 1rem;
-            overflow-y: auto;
-            border-right: 1px solid #ddd;
-        }
-        #map {
-            height: 100%;
-            width: 100%;
-        }
-        .form-section {
-            margin-bottom: 1.5rem;
-            padding: 1rem;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .tab-container {
-            display: flex;
-            margin-bottom: 1rem;
-        }
-        .tab {
-            padding: 0.5rem 1rem;
-            cursor: pointer;
-            border-bottom: 2px solid transparent;
-        }
-        .tab.active {
-            border-bottom: 2px solid #0078d4;
-            font-weight: bold;
-        }
-        .tab-content {
-            display: none;
-        }
-        .tab-content.active {
-            display: block;
-        }
-        .coordinates-input {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 0.5rem;
-        }
-        .preview-image {
-            max-width: 100%;
-            margin-top: 1rem;
-            border-radius: 4px;
-            border: 1px solid #ddd;
-        }
-        .processed-image {
-            max-width: 100%;
-            margin-top: 1rem;
-            border: 1px solid #ddd;
-        }
-        .error-message {
-            color: red;
-            display: block;
-            margin-top: 0.5rem;
-        }
-        .response-container {
-            margin-top: 1rem;
-        }
-        .leaflet-control-attribution {
-            display: none !important;
-        }
-        .leaflet-top {
-            display: none;
-        }
-        progress {
-            width: 100%;
-        }
-        .grid {
-            display: grid;
-            gap: 1rem;
-        }
     </style>
 </head>
 <body x-data="appData()">
@@ -161,14 +84,45 @@
             <img x-bind:src="imgRGB" class="preview-image" x-show="imgRGB">
         </div>
 
-        <!-- Resultados -->
+        <!-- Seção de desenho no mapa -->
+        <div class="form-section" :class="{ 'drawing-active': isDrawing }">
+            <h3>Desenhar no Mapa</h3>
+            <button @click="toggleDrawingMode()" 
+                    :class="{ 'secondary': isDrawing }"
+                    style="width: 100%; margin-bottom: 0.5rem;">
+                <span x-show="!isDrawing">Ativar Modo Desenho</span>
+                <span x-show="isDrawing">Desativar Modo Desenho</span>
+            </button>
+            <button @click="clearDrawings()" 
+                    style="width: 100%;" 
+                    x-show="hasDrawings"
+                    class="outline">
+                Limpar Todos os Desenhos
+            </button>
+            <div x-show="isDrawing" class="instruction-box">
+                <p><strong>Instruções:</strong></p>
+                <p>1. Clique no mapa para começar a desenhar</p>
+                <p>2. Clique para adicionar vértices</p>
+                <p>3. Clique no primeiro ponto para finalizar</p>
+                <p>4. Clique fora para cancelar</p>
+            </div>
+            <div x-show="currentDrawing" class="drawing-info">
+                <p>Área atual: <span x-text="(currentDrawing.getArea() / 10000).toFixed(2)"></span> hectares</p>
+            </div>
+            <div x-show="hasDrawings && !isDrawing" class="drawing-info">
+                <p>Total de polígonos: <span x-text="drawnItems.getLayers().length"></span></p>
+            </div>
+        </div>
+
         <!-- Resultados -->
         <div class="form-section response-container">
             <h3>Resultados</h3>
             <div id="predictionResults">
                 <!-- Resultados do Mapa -->
                 <div x-show="mapResults">
-                    <p x-text="'Localização: ' + selectedCoords.lat.toFixed(6) + ', ' + selectedCoords.lng.toFixed(6)"></p>
+                    <template x-if="selectedCoords">
+                        <p x-text="'Localização: ' + selectedCoords.lat.toFixed(6) + ', ' + selectedCoords.lng.toFixed(6)"></p>
+                    </template>
                     <div class="image-container" x-show="mapUrl">
                         <img x-bind:src="mapUrl" class="processed-image">
                         <button @click="downloadImage(mapUrl, 'mapa_processado.png')" class="download-btn">
@@ -210,236 +164,10 @@
 
     <!-- Mapa Leaflet -->
     <div id="map"></div>
-
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script>
-        document.addEventListener('alpine:init', () => {
-            Alpine.data('appData', () => ({
-                // Estado do aplicativo
-                currentMode: 'click',
-                selectedCoords: null,
-                manualCoords: { lat: -17.70894, lng: -40.60899 },
-                mapParams: {
-                    dateStart: '',
-                    dateEnd: '',
-                    cloudFilter: 15
-                },
-                isProcessingMap: false,
-                isProcessingImage: false,
-                errorMessage: '',
-                mapResults: false,
-                imageResults: false,
-                mapUrl: null,
-                response: {},
-                sortedKeys: [],
-                imgSrc: null,
-                imgRGB: null,
-                currentMarker: null,
-                mapInstance: null,
-
-                // Inicialização
-                init() {
-                    this.setDefaultDates();
-                    this.initMap();
-                },
-                downloadImage(url, filename) {
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                },
-
-                // Inicializa o mapa Leaflet
-                initMap() {
-                    this.mapInstance = L.map('map', {
-                        attributionControl: false
-                    }).setView([-17.70894, -40.60899], 12);
-
-                    L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
-                        maxZoom: 20,
-                        detectRetina: true
-                    }).addTo(this.mapInstance);
-
-                    // Evento de clique no mapa
-                    this.mapInstance.on('click', (e) => {
-                        if (this.currentMode !== 'click') return;
-                        
-                        this.selectedCoords = e.latlng;
-                        this.updateMarker();
-                    });
-                },
-
-                // Atualiza marcador no mapa
-                updateMarker() {
-                    if (this.currentMarker) {
-                        this.mapInstance.removeLayer(this.currentMarker);
-                    }
-                    
-                    this.currentMarker = L.marker([this.selectedCoords.lat, this.selectedCoords.lng])
-                        .addTo(this.mapInstance)
-                        .bindPopup("Local selecionado")
-                        .openPopup();
-                },
-
-                // Confirma coordenadas manuais
-                confirmManualCoords() {
-                    if (isNaN(this.manualCoords.lat) || isNaN(this.manualCoords.lng)) {
-                        this.errorMessage = "Por favor, insira coordenadas válidas!";
-                        return;
-                    }
-                    
-                    this.selectedCoords = { ...this.manualCoords };
-                    this.updateMarker();
-                    this.mapInstance.setView([this.manualCoords.lat, this.manualCoords.lng], 15);
-                    this.errorMessage = '';
-                },
-
-                // Busca dados do mapa
-                async fetchMapData() {
-                    if (!this.selectedCoords) {
-                        this.errorMessage = "Selecione um local no mapa ou insira coordenadas primeiro!";
-                        return;
-                    }
-
-                    this.isProcessingMap = true;
-                    this.mapUrl = null;
-                    this.errorMessage = '';
-                    this.mapResults = true;
-                    this.imageResults = false;
-
-                    try {
-                        const response = await fetch(
-                            `/get_map?latitude=${this.selectedCoords.lat}&longitude=${this.selectedCoords.lng}` +
-                            `&data=${this.mapParams.dateStart},${this.mapParams.dateEnd}` +
-                            `&filter=CLOUDY_PIXEL_PERCENTAGE,${this.mapParams.cloudFilter}`
-                        );
-
-                        if (response.ok) {
-                            const blob = await response.blob();
-                            this.mapUrl = URL.createObjectURL(blob);
-                            
-                            if (this.currentMarker) {
-                                this.currentMarker.setPopupContent(`<img src="${this.mapUrl}" style="max-width:200px;">`);
-                            }
-                        } else {
-                            const data = await response.json();
-                            this.errorMessage = data.detail || "Erro ao processar o mapa";
-                        }
-                    } catch (error) {
-                        this.errorMessage = "Erro ao buscar dados: " + error.message;
-                        console.error(error);
-                    } finally {
-                        this.isProcessingMap = false;
-                    }
-                },
-
-                // Processa upload de imagem
-                async requestBackendPrediction() {
-                    const formElement = document.getElementById('formInput');
-                    if (!formElement.files || formElement.files.length === 0) {
-                        this.errorMessage = "Selecione uma imagem primeiro!";
-                        return;
-                    }
-
-                    this.isProcessingImage = true;
-                    this.imgSrc = null;
-                    this.imgRGB = null;
-                    this.errorMessage = '';
-                    this.mapResults = false;
-                    this.imageResults = true;
-
-                    const formData = new FormData(formElement);
-
-                    try {
-                        // Requisição de predição
-                        const request = await fetch(`/predict`, {
-                            headers: {
-                                "accept": "application/json",
-                                "cache-control": "no-cache",
-                                "pragma": "no-cache",
-                            },
-                            body: formData,
-                            method: "POST",
-                            credentials: "omit"
-                        });
-
-                        const data = await request.json();
-                        if (request.status == 400) {
-                            this.errorMessage = data.detail;
-                            return;
-                        }
-                        this.response = data;
-                        this.sortedKeys = Object.keys(data.probabilities).sort();
-
-                        // Requisição da imagem processada
-                        const imageRequest = await fetch(`/visualize`, {
-                            headers: {
-                                "cache-control": "no-cache",
-                                "pragma": "no-cache",
-                            },
-                            body: formData,
-                            method: "POST",
-                            credentials: "omit"
-                        });
-                        const imageData = await imageRequest.blob();
-                        this.imgSrc = URL.createObjectURL(imageData);
-
-                        // Requisição da imagem RGB
-                        const rgbRequest = await fetch(`/visualize?rgb_image=true`, {
-                            headers: {
-                                "cache-control": "no-cache",
-                                "pragma": "no-cache",
-                            },
-                            body: formData,
-                            method: "POST",
-                            credentials: "omit"
-                        });
-                        const rgbData = await rgbRequest.blob();
-                        this.imgRGB = URL.createObjectURL(rgbData);
-                    } catch (error) {
-                        this.errorMessage = "Erro ao processar a requisição: " + error.message;
-                        console.error(error);
-                    } finally {
-                        this.isProcessingImage = false;
-                    }
-                },
-
-                // Manipulador de upload de arquivo
-                handleFileUpload(event) {
-                    const file = event.target.files[0];
-                    if (file) {
-                        this.imgRGB = URL.createObjectURL(file);
-                    }
-                },
-
-                // Atualiza valor do filtro de nuvens
-                updateCloudValue() {
-                    // Reativo através do x-model
-                },
-
-                // Alterna entre abas
-                switchTab(tab) {
-                    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                    
-                    document.querySelector(`.tab[data-tab="${tab}"]`).classList.add('active');
-                    document.getElementById(`${tab}-tab`).classList.add('active');
-                },
-
-                // Define datas padrão
-                setDefaultDates() {
-                    const today = new Date();
-                    const lastMonth = new Date();
-                    lastMonth.setMonth(today.getMonth() - 1);
-                    
-                    // Formato YYYY-MM-DD
-                    this.mapParams.dateStart = lastMonth.toISOString().split('T')[0];
-                    this.mapParams.dateEnd = today.toISOString().split('T')[0];
-                }
-            }));
-        });
-    </script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/mapControls.js"></script>
+    <script src="/static/js/drawHandlers.js"></script>
+    <script src="/static/js/apiHandlers.js"></script>
+    <script src="/static/js/app.js"></script>
 </body>
 </html>
