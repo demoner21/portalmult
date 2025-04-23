@@ -8,7 +8,7 @@ from database.roi_queries import (
     atualizar_roi,
     deletar_roi
 )
-from database.database import get_current_user
+from utils.jwt_utils import get_current_user
 from utils.geometry_utils import validate_geometry_wkt
 import json
 

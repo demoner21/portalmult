@@ -11,3 +11,5 @@ gitingnore
 *.tif
 *.tiff
 .env
+tests
+src

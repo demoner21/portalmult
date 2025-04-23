@@ -11,6 +11,7 @@ from utils.raster_utils import read_and_normalize, calculate_and_save
 from services.band_downloader import BandDownloader
 from services.band_calculator import BandCalculator
 from services.tiff_processor import TiffProcessor
+from utils.data_range import validate_date_range
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +38,11 @@ class EarthEngineProcessor:
             Tuple (lista de arquivos resultantes, resultado da predição)
         """
         # Gera chave única para o cache
-        cache_key = self.cache_service.generate_cache_key(parameters)
+        cache_key = f"{parameters['latitude']}_{parameters['longitude']}_{parameters['data'][0]}_{parameters['data'][1]}"
         
-        # Verifica cache primeiro
-        cached_data = await self.cache_service.check_cache(cache_key)
-        if cached_data:
+        if cache_key in self.request_cache:
             logger.info(f"Retornando dados do cache para chave: {cache_key}")
-            return cached_data['result_path'], cached_data['prediction_result']
+            return self.request_cache[cache_key]['result_path'], self.request_cache[cache_key]['prediction_result']
 
         # Validação de parâmetros
         self._validate_parameters(parameters)
@@ -64,9 +63,10 @@ class EarthEngineProcessor:
         
         # Armazena no cache e no banco de dados
         if result_files:
-            await self._store_results(
-                parameters, result_files, prediction_result, cache_key
-            )
+            self.request_cache[cache_key] = {
+                'result_path': result_files,
+                'prediction_result': prediction_result
+            }
 
         return result_files, prediction_result
 
@@ -116,19 +116,21 @@ class EarthEngineProcessor:
         """Filtra a coleção de imagens do Sentinel-2"""
         image_collection = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
         
+        # Extrai o valor do filtro de nuvens
+        cloud_filter = float(parameters['filter'].split(',')[1]) if parameters.get('filter') else 100
+        
         filtered_collection = (
             image_collection
             .filterBounds(region)
             .filterDate(parameters['data'][0], parameters['data'][1])
-            .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 
-                                float(parameters['filter'].split(',')[1])))
+            .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', cloud_filter))
         )
-
+    
         count = filtered_collection.size().getInfo()
         if count == 0:
             logger.warning("Nenhuma imagem encontrada para os parâmetros fornecidos.")
             return None
-
+    
         return filtered_collection.sort('system:time_start', False).first()
 
     async def _process_image(
