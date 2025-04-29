@@ -11,11 +11,12 @@ def validate_geometry_wkt(wkt_string: str) -> bool:
     """
     try:
         geom = wkt.loads(wkt_string)
-        if geom.is_empty:
+        if not geom.is_valid:
+            logger.warning(f"Geometria inválida: {explain_validity(geom)}")
             return False
         return True
     except Exception as e:
-        logger.error(f"Erro ao validar geometria WKT: {str(e)}")
+        logger.error(f"Erro na validação WKT: {str(e)}")
         return False
 
 def geojson_to_wkt(geojson: dict) -> str:

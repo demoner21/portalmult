@@ -5,17 +5,15 @@ from datetime import datetime
 from pathlib import Path
 import json
 import logging
-import ee
-from utils.upload_utils import save_uploaded_files, cleanup_temp_files
-from utils.shapefile_utils import extrair_geometria_shp
+from services.shapefile_processor import ShapefileProcessor
 from services.earth_engine_processor import EarthEngineProcessor
-from utils.zip_creator import ZipCreator
 from utils.jwt_utils import get_current_user
 from database.roi_queries import criar_roi
-
-logger = logging.getLogger(__name__)
+from utils.zip_creator import ZipCreator
+from models.roi_models import ROICreate  # Modelo Pydantic existente
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 @router.post("/download_image/")
 async def download_image_from_shapefile(
@@ -29,68 +27,44 @@ async def download_image_from_shapefile(
     cloud_pixel_percentage: float = Query(..., description="Percentual máximo de nuvens permitido (0 a 100)"),
     current_user: dict = Depends(get_current_user)
 ):
-    """
-    Faz o upload de shapefile, processa imagens e cria uma ROI associada ao usuário.
-    Retorna um ZIP com as imagens processadas.
-    """
-    temp_dir = None
+    """Endpoint original completo, agora usando ShapefileProcessor."""
     try:
-        # Validação dos arquivos obrigatórios
-        arquivos_obrigatorios = [shapefile, shxfile, dbffile]
-        for arquivo in arquivos_obrigatorios:
-            if arquivo is None:
-                raise HTTPException(status_code=400, detail=f"Arquivo {arquivo.filename} é obrigatório.")
+        # 1. Processa o shapefile (parte refatorada)
+        geometry, metadados = await ShapefileProcessor.process_uploaded_files({
+            "shp": shapefile,
+            "shx": shxfile,
+            "dbf": dbffile,
+            "cpg": cpgfile,
+            "prj": prjfile
+        })
 
-        # Salva arquivos temporariamente
-        temp_dir = save_uploaded_files([shapefile, shxfile, dbffile, cpgfile, prjfile])
-        shapefile_path = temp_dir / shapefile.filename
-
-        # Extrai geometria do shapefile
-        ee_geometry = extrair_geometria_shp(shapefile_path)
-        if ee_geometry is None:
-            raise HTTPException(status_code=400, detail="Shapefile inválido ou vazio.")
-
-        # Validação dos parâmetros
+        # 2. Validação de datas e parâmetros (mantido da versão original)
         try:
             start_date_obj = datetime.strptime(start_date, '%Y-%m-%d')
             end_date_obj = datetime.strptime(end_date, '%Y-%m-%d')
+            if not 0 <= cloud_pixel_percentage <= 100:
+                raise HTTPException(status_code=400, detail="Percentual de nuvens inválido")
         except ValueError:
-            raise HTTPException(status_code=400, detail="Formato de data inválido. Use 'YYYY-MM-DD'.")
+            raise HTTPException(status_code=400, detail="Formato de data inválido")
 
-        if not 0 <= cloud_pixel_percentage <= 100:
-            raise HTTPException(status_code=400, detail="O percentual de nuvens deve estar entre 0 e 100.")
-
-        # Processa as imagens
+        # 3. Processa imagens no Earth Engine (mantido original)
         processor = EarthEngineProcessor()
         result, _ = await processor.process_data(
             parameters={
-                "latitude": 0,  # Não usado quando geometry é fornecido
-                "longitude": 0,
                 "data": [start_date, end_date],
                 "filter": f"CLOUDY_PIXEL_PERCENTAGE,{cloud_pixel_percentage}"
             },
-            geometry=ee_geometry
+            geometry=geometry
         )
 
         if not result:
-            raise HTTPException(status_code=404, detail="Nenhuma imagem encontrada para os parâmetros fornecidos.")
+            raise HTTPException(status_code=404, detail="Nenhuma imagem encontrada")
 
-        # Lista de arquivos enviados
-        arquivos_enviados = {
-            "shapefile": shapefile.filename,
-            "shxfile": shxfile.filename,
-            "dbffile": dbffile.filename,
-        }
-        if cpgfile:
-            arquivos_enviados["cpgfile"] = cpgfile.filename
-        if prjfile:
-            arquivos_enviados["prjfile"] = prjfile.filename
-
-        # Cria a ROI no banco de dados
+        # 4. Cria ROI no banco (com metadados completos)
         roi_data = {
             "nome": Path(shapefile.filename).stem,
             "descricao": f"Shapefile processado em {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-            "geometria": json.dumps(ee_geometry.toGeoJSON()),
+            "geometria": json.dumps(geometry.toGeoJSON()),
             "tipo_origem": "shapefile",
             "metadata": {
                 "start_date": start_date,
@@ -99,7 +73,7 @@ async def download_image_from_shapefile(
                 "files": [f.filename for f in result]
             },
             "nome_arquivo_original": shapefile.filename,
-            "arquivos_relacionados": arquivos_enviados
+            "arquivos_relacionados": metadados["arquivos_enviados"]
         }
 
         roi_criada = await criar_roi(
@@ -108,7 +82,7 @@ async def download_image_from_shapefile(
         )
         logger.info(f"ROI criada: {roi_criada['roi_id']}")
 
-        # Cria e retorna o ZIP
+        # 5. Gera ZIP (mantido original)
         zip_creator = ZipCreator()
         zip_buffer = await zip_creator.create_zip_file(result)
 
@@ -122,7 +96,4 @@ async def download_image_from_shapefile(
         raise he
     except Exception as e:
         logger.error(f"Erro no processamento: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Erro ao processar shapefile: {str(e)}")
-    finally:
-        if temp_dir:
-            cleanup_temp_files(temp_dir)
+        raise HTTPException(status_code=500, detail=str(e))
