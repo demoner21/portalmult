@@ -75,6 +75,17 @@ async def download_image_from_shapefile(
         if not result:
             raise HTTPException(status_code=404, detail="Nenhuma imagem encontrada para os parâmetros fornecidos.")
 
+        # Lista de arquivos enviados
+        arquivos_enviados = {
+            "shapefile": shapefile.filename,
+            "shxfile": shxfile.filename,
+            "dbffile": dbffile.filename,
+        }
+        if cpgfile:
+            arquivos_enviados["cpgfile"] = cpgfile.filename
+        if prjfile:
+            arquivos_enviados["prjfile"] = prjfile.filename
+
         # Cria a ROI no banco de dados
         roi_data = {
             "nome": Path(shapefile.filename).stem,
@@ -86,7 +97,9 @@ async def download_image_from_shapefile(
                 "end_date": end_date,
                 "cloud_cover": cloud_pixel_percentage,
                 "files": [f.filename for f in result]
-            }
+            },
+            "nome_arquivo_original": shapefile.filename,
+            "arquivos_relacionados": arquivos_enviados
         }
 
         roi_criada = await criar_roi(

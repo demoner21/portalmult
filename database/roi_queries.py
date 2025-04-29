@@ -16,28 +16,43 @@ async def criar_roi(conn, user_id: int, roi_data: Dict):
         roi_data: Dicionário com os dados da ROI:
             - nome: Nome da ROI
             - descricao: Descrição (opcional)
-            - geometria: Geometria em formato WKT
+            - geometria: Geometria em formato GeoJSON
             - tipo_origem: Tipo de origem (ex: 'shapefile')
             - metadata: Metadados adicionais (opcional)
+            - nome_arquivo_original: Nome do arquivo original (opcional)
+            - arquivos_relacionados: Arquivos relacionados (opcional)
             
     Returns:
         Dicionário com os dados da ROI criada
     """
     try:
+        # Converte metadata para JSON se for um dicionário
+        metadata = roi_data.get('metadata', {})
+        if isinstance(metadata, dict):
+            metadata = json.dumps(metadata)
+            
+        # Converte arquivos_relacionados para JSON se for um dicionário
+        arquivos_relacionados = roi_data.get('arquivos_relacionados', {})
+        if isinstance(arquivos_relacionados, dict):
+            arquivos_relacionados = json.dumps(arquivos_relacionados)
+
         result = await conn.fetchrow(
             """
             INSERT INTO regiao_de_interesse 
-            (user_id, nome, descricao, geometria, tipo_origem, metadata, sistema_referencia)
-            VALUES ($1, $2, $3, ST_GeomFromText($4, 4326), $5, $6, 'EPSG:4326')
+            (user_id, nome, descricao, geometria, tipo_origem, metadata, sistema_referencia,
+             nome_arquivo_original, arquivos_relacionados)
+            VALUES ($1, $2, $3, ST_GeomFromGeoJSON($4), $5, $6::jsonb, 'EPSG:4326', $7, $8::jsonb)
             RETURNING roi_id, nome, ST_AsGeoJSON(geometria)::json as geometria, 
-                      tipo_origem, status, data_criacao
+                      tipo_origem, status, data_criacao, nome_arquivo_original
             """,
             user_id,
             roi_data['nome'],
             roi_data.get('descricao', ''),
             roi_data['geometria'],
             roi_data['tipo_origem'],
-            json.dumps(roi_data.get('metadata', {}))
+            metadata,
+            roi_data.get('nome_arquivo_original'),
+            arquivos_relacionados
         )
         logger.info(f"ROI criada com ID: {result['roi_id']}")
         return dict(result)
