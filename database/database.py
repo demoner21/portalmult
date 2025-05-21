@@ -94,9 +94,9 @@ def with_db_connection(func):
         try:
             conn = await asyncpg.connect(**DB_CONFIG)
             logger.info("Conexão estabelecida")
-            result = await func(conn, *args, **kwargs)
-            logger.info("Operação concluída")  # Novo log
-            return result  # Mantenha a conexão aberta até aqui
+            result = await func(conn, *args, **kwargs)  # Injetando conn como primeiro argumento
+            logger.info("Operação concluída")
+            return result
         except Exception as e:
             logger.error(f"Erro: {str(e)}")
             raise

@@ -6,35 +6,30 @@ import json
 logger = logging.getLogger(__name__)
 
 @with_db_connection
-async def criar_roi(conn, user_id: int, roi_data: Dict):
+async def criar_roi(
+    conn,  # Conexão injetada pelo decorador
+    *,  # Força os próximos argumentos a serem keyword-only
+    user_id: int,
+    roi_data: Dict
+):
     """
     Cria uma nova ROI no banco de dados
     
     Args:
-        conn: Conexão com o banco de dados
-        user_id: ID do usuário
-        roi_data: Dicionário com os dados da ROI:
-            - nome: Nome da ROI
-            - descricao: Descrição (opcional)
-            - geometria: Geometria em formato GeoJSON
-            - tipo_origem: Tipo de origem (ex: 'shapefile')
-            - metadata: Metadados adicionais (opcional)
-            - nome_arquivo_original: Nome do arquivo original (opcional)
-            - arquivos_relacionados: Arquivos relacionados (opcional)
-            
-    Returns:
-        Dicionário com os dados da ROI criada
+        conn: Conexão com o banco (injetada pelo decorador)
+        user_id: ID do usuário proprietário
+        roi_data: Dicionário com os dados da ROI
     """
     try:
-        # Converte metadata para JSON se for um dicionário
+        # Converte metadata para JSON string se for um dicionário
         metadata = roi_data.get('metadata', {})
         if isinstance(metadata, dict):
             metadata = json.dumps(metadata)
             
-        # Converte arquivos_relacionados para JSON se for um dicionário
-        arquivos_relacionados = roi_data.get('arquivos_relacionados', {})
-        if isinstance(arquivos_relacionados, dict):
-            arquivos_relacionados = json.dumps(arquivos_relacionados)
+        # Converte geometria para string JSON se for dict
+        geometria = roi_data['geometria']
+        if isinstance(geometria, dict):
+            geometria = json.dumps(geometria)
 
         result = await conn.fetchrow(
             """
@@ -45,16 +40,15 @@ async def criar_roi(conn, user_id: int, roi_data: Dict):
             RETURNING roi_id, nome, ST_AsGeoJSON(geometria)::json as geometria, 
                       tipo_origem, status, data_criacao, nome_arquivo_original
             """,
-            user_id,
-            roi_data['nome'],
-            roi_data.get('descricao', ''),
-            roi_data['geometria'],
-            roi_data['tipo_origem'],
-            metadata,
-            roi_data.get('nome_arquivo_original'),
-            arquivos_relacionados
+            user_id,  # $1
+            roi_data['nome'],  # $2
+            roi_data.get('descricao', ''),  # $3
+            geometria,  # $4
+            roi_data['tipo_origem'],  # $5
+            metadata,  # $6
+            roi_data.get('nome_arquivo_original'),  # $7
+            json.dumps(roi_data.get('arquivos_relacionados', {}))  # $8
         )
-        logger.info(f"ROI criada com ID: {result['roi_id']}")
         return dict(result)
     except Exception as e:
         logger.error(f"Erro ao criar ROI: {str(e)}", exc_info=True)

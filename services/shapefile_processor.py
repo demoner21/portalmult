@@ -1,96 +1,93 @@
-import ee
-import uuid
-from pathlib import Path
 import geopandas as gpd
-from pathlib import Path
-from typing import Dict, Optional, Tuple
-from fastapi import HTTPException, UploadFile
-import logging
-from tempfile import TemporaryDirectory
-import shutil
 from shapely.geometry import shape
+from typing import Dict, Tuple
 import json
+import logging
+from pathlib import Path
+import pyproj
+from functools import partial
+from shapely.ops import transform
 
 logger = logging.getLogger(__name__)
 
 class ShapefileProcessor:
-    @staticmethod
-    async def process_uploaded_files(files: Dict[str, UploadFile]) -> Tuple[ee.Geometry, Dict]:
-        """
-        Processa arquivos de shapefile enviados e retorna uma geometria do Earth Engine e metadados.
-        
-        Args:
-            files: Dicionário com os arquivos do shapefile (ex: {"shp": UploadFile, "shx": UploadFile})
-        
-        Returns:
-            Tuple[ee.Geometry, Dict]: Geometria no formato EE e metadados dos arquivos.
-        """
-        temp_dir = Path(f"temp_shapefile_{uuid.uuid4().hex}")
+    async def process(self, temp_dir: Path) -> Dict:
+        """Processa os arquivos do shapefile e retorna dados padronizados"""
         try:
-            temp_dir.mkdir(exist_ok=True)
+            # Encontrar arquivo .shp no diretório temporário
+            shp_files = list(temp_dir.glob('*.shp'))
+            if not shp_files:
+                raise ValueError("Nenhum arquivo .shp encontrado")
             
-            # Salva os arquivos temporariamente
-            saved_files = {}
-            for file_type, file in files.items():
-                if file is not None:
-                    file_path = temp_dir / file.filename
-                    with open(file_path, "wb") as buffer:
-                        shutil.copyfileobj(file.file, buffer)
-                    saved_files[file_type] = file.filename
+            shp_path = shp_files[0]
             
-            # Valida arquivos mínimos (.shp, .shx, .dbf)
-            required_files = ["shp", "shx", "dbf"]
-            if not all(f in saved_files for f in required_files):
-                raise HTTPException(
-                    status_code=400,
-                    detail="Arquivos obrigatórios faltando: .shp, .shx, .dbf"
-                )
+            # Ler shapefile com geopandas
+            gdf = gpd.read_file(shp_path)
+            if gdf.empty:
+                raise ValueError("Shapefile não contém geometrias")
             
-            # Extrai geometria
-            shp_path = temp_dir / saved_files["shp"]
-            geometry = await ShapefileProcessor.extract_geometry(shp_path)
+            # Verificar e converter CRS para WGS84 se necessário
+            gdf = self.ensure_wgs84(gdf)
             
-            return geometry, {
-                "arquivos_enviados": saved_files,
-                "nome_arquivo_original": saved_files["shp"]
+            # Pegar a primeira geometria (podemos expandir para múltiplas depois)
+            geometry = gdf.geometry.iloc[0]
+            
+            # Calcular área em hectares
+            area_ha = self.calculate_area(geometry)
+            
+            # Converter para formatos padrão
+                    # Converter para formatos padrão
+            geojson = json.loads(gdf.iloc[[0]].to_json())['features'][0]['geometry']
+            
+            # Garantir que as coordenadas são listas, não arrays numpy
+            if 'coordinates' in geojson:
+                geojson['coordinates'] = [list(map(list, ring)) for ring in geojson['coordinates']]
+            
+            wkt = geometry.wkt
+            
+            return {
+                'type': geometry.geom_type,
+                'geojson': geojson,  # Já é um dict válido
+                'wkt': wkt,
+                'area': area_ha,
+                'bbox': list(map(float, geometry.bounds)),  # Garante floats simples
+                'properties': self.extract_properties(gdf),
+                'crs': 'EPSG:4326'
             }
             
         except Exception as e:
             logger.error(f"Erro no processamento: {str(e)}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
-        finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-    
-    @staticmethod
-    async def extract_geometry(shp_path: Path) -> ee.Geometry:
-        """Extrai geometria e converte para formato compatível."""
-        try:
-            gdf = gpd.read_file(shp_path)
-            if gdf.empty:
-                raise ValueError("Shapefile está vazio")
+            raise
 
-            gdf_wgs84 = gdf.to_crs('EPSG:4326')
-            geojson = gdf_wgs84.__geo_interface__
+    def ensure_wgs84(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        """Garante que o GeoDataFrame está em WGS84"""
+        if gdf.crs is None:
+            raise ValueError("Shapefile não possui sistema de referência definido")
+            
+        if gdf.crs != 'EPSG:4326':
+            logger.info(f"Convertendo CRS de {gdf.crs} para EPSG:4326")
+            return gdf.to_crs('EPSG:4326')
+            
+        return gdf
 
-            # Convertemos para Shapely primeiro para validação
-            shapely_geom = shape(geojson['features'][0]['geometry'])
+    def calculate_area(self, geometry) -> float:
+        """Calcula área aproximada em hectares"""
+        # Usando projeção para cálculo de área mais preciso
+        project = partial(
+            pyproj.transform,
+            pyproj.Proj('EPSG:4326'),
+            pyproj.Proj(
+                proj='aea',
+                lat_1=geometry.bounds[1],
+                lat_2=geometry.bounds[3]
+            )
+        )
+        
+        transformed_geom = transform(project, geometry)
+        return transformed_geom.area / 10000  # m² para hectares
 
-            # Retorna tanto a geometria do EE quanto WKT para validação
-            return {
-                "ee_geometry": ee_geom,
-                "wkt": wkt_geom,
-                "type": geom_type
-            }, {
-                "arquivos_enviados": {
-                    "shp": files["shp"].filename,
-                    "shx": files["shx"].filename,
-                    "dbf": files["dbf"].filename,
-                    "cpg": files.get("cpg", "").filename if files.get("cpg") else None,
-                    "prj": files.get("prj", "").filename if files.get("prj") else None
-                },
-                "nome_arquivo_original": files["shp"].filename
-            }
-
-        except Exception as e:
-            logger.error(f"Erro ao extrair geometria: {str(e)}")
-            raise HTTPException(status_code=400, detail=f"Geometria inválida: {str(e)}")
+    def extract_properties(self, gdf: gpd.GeoDataFrame) -> Dict:
+        """Extrai propriedades do dbf para metadados"""
+        if len(gdf.columns) > 1:  # Tem atributos além da geometria
+            return gdf.iloc[0].drop('geometry').to_dict()
+        return {}
