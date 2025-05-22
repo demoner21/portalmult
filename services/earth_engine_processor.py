@@ -221,3 +221,5 @@ class EarthEngineProcessor:
             "longitude_max": longitude + delta_width / 2,
             "latitude_max": latitude + delta_height / 2
         }
+    
+    
