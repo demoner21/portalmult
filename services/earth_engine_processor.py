@@ -4,6 +4,7 @@ import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Dict, Tuple, Any, Optional, List
+import io
 from utils.validators import bandas
 from utils.async_utils import download_band, download_slope
 from services.earth_engine_initializer import initialize_earth_engine
@@ -12,6 +13,8 @@ from services.band_downloader import BandDownloader
 from services.band_calculator import BandCalculator
 from services.tiff_processor import TiffProcessor
 from utils.data_range import validate_date_range
+from services.model_loader import create_model_binary, create_model_classification, run_prediction
+from spin.inference import extract_layer
 
 logger = logging.getLogger(__name__)
 
@@ -62,13 +65,63 @@ class EarthEngineProcessor:
         )
         
         # Armazena no cache e no banco de dados
-        if result_files:
+        if result_files and isinstance(prediction_result, dict) and 'predicted_class' in prediction_result:
             self.request_cache[cache_key] = {
                 'result_path': result_files,
                 'prediction_result': prediction_result
             }
 
         return result_files, prediction_result
+
+    async def _process_prediction(self, band_files: List[str]) -> Dict:
+        """
+        Process the prediction using the downloaded band files.
+        
+        Args:
+            band_files: List of paths to the downloaded band files
+            
+        Returns:
+            Dictionary with prediction results
+        """
+        try:
+            # Load the binary model first
+            binary_model = create_model_binary()
+            if not binary_model:
+                raise ValueError("Failed to load binary model")
+            
+            # Process the files for prediction
+            data = []
+            for file in band_files:
+                with open(file, 'rb') as f:
+                    data.append({
+                        "data": io.BytesIO(f.read()),
+                        "layer": extract_layer(file)
+                    })
+            
+            raster_data = [d["data"] for d in data]
+            
+            # Run binary prediction
+            binary_result = run_prediction("binary", raster_data)
+            
+            # If erosion is detected, run classification
+            if binary_result["predicted_class"] == "presente":
+                classification_model = create_model_classification()
+                if not classification_model:
+                    raise ValueError("Failed to load classification model")
+                
+                classification_result = run_prediction("classification", raster_data)
+                classification_result["probabilities"].update(binary_result["probabilities"])
+                return classification_result
+            
+            return binary_result
+            
+        except Exception as e:
+            logger.error(f"Error in prediction processing: {str(e)}", exc_info=True)
+            return {
+                "status": 500,
+                "mensagem": "Erro durante o processamento da predição",
+                "error": str(e)
+            }
 
     def _validate_parameters(self, parameters: Dict):
         """Valida os parâmetros da requisição"""
@@ -124,7 +177,7 @@ class EarthEngineProcessor:
             .filterBounds(region)
             .filterDate(parameters['data'][0], parameters['data'][1])
             .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', cloud_filter))
-        )
+        )  # Added closing parenthesis here
     
         count = filtered_collection.size().getInfo()
         if count == 0:
@@ -132,6 +185,7 @@ class EarthEngineProcessor:
             return None
     
         return filtered_collection.sort('system:time_start', False).first()
+
 
     async def _process_image(
         self,
@@ -163,7 +217,7 @@ class EarthEngineProcessor:
         band_calculator = BandCalculator(band_files)
         all_files = band_calculator.calculate_indices()
 
-        # Processa a predição (se aplicável)
+        # Processa a predição
         prediction_result = await self._process_prediction(all_files)
 
         return all_files, prediction_result
@@ -221,5 +275,3 @@ class EarthEngineProcessor:
             "longitude_max": longitude + delta_width / 2,
             "latitude_max": latitude + delta_height / 2
         }
-    
-    
