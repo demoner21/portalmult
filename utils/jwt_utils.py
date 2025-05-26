@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta, timezone
-from jose import jwt
 from typing import Union
 from pydantic import BaseModel
 from dotenv import load_dotenv

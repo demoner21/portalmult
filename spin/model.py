@@ -22,10 +22,20 @@ def load_model_with_config(base: Path) -> Tuple[keras.Model, ModelConfig]:
     """
     config = ModelConfig.read_json(base / "config.json")
 
-    model_file = str(base / "model.checkpoint.best.keras")
-    model = keras.models.load_model(
-        model_file,
-        custom_objects={"AugmentationLayer": IdentityLayer},
-    )
+    model_file = base / "model.checkpoint.best.keras"
+
+    if model_file.is_file():
+        model = keras.models.load_model(
+            str(model_file),
+            custom_objects={"AugmentationLayer": IdentityLayer},
+        )
+    elif model_file.is_dir():
+        model = keras.models.load_model(
+            model_file,
+            custom_objects={"AugmentationLayer": IdentityLayer},
+        )
+    else:
+        raise FileNotFoundError(f"Arquivo de modelo não encontrado ou inválido: {model_file}")
+
 
     return model, config
