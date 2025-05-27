@@ -13,3 +13,9 @@ gitingnore
 .env
 tests
 src
+authentication.log
+bin/
+install.sh
+lib
+lib64
+pyvenv.cfg
