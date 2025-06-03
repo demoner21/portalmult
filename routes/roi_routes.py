@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 from pathlib import Path
@@ -18,7 +18,6 @@ router = APIRouter(
 )
 logger = logging.getLogger(__name__)
 
-# Configurações
 ALLOWED_FILE_TYPES = {
     'shp': 'application/octet-stream',
     'shx': 'application/octet-stream', 
@@ -29,23 +28,21 @@ ALLOWED_FILE_TYPES = {
 MAX_FILE_SIZE_MB = 10
 MAX_VERTICES = 10000
 
-# Modelos Pydantic atualizados
 class ROIBase(BaseModel):
     nome: str
-    descricao: str
+    descricao: Optional[str] = "ROI criada via upload de shapefile"
     geometria: Dict[str, Any]
     tipo_origem: str
-    status: str
+    status: Optional[str] = "ativo"
     nome_arquivo_original: Optional[str] = None
     metadata: Optional[Dict] = None
 
-# Constantes para valores de status permitidos
 VALID_STATUS_VALUES = ["ativo", "inativo", "processando", "erro"]
 
 class ROIResponse(ROIBase):
     roi_id: int
-    data_criacao: datetime
-    data_modificacao: datetime
+    data_criacao: Optional[datetime] = None
+    data_modificacao: Optional[datetime] = None
 
     class Config:
         json_encoders = {
@@ -59,15 +56,9 @@ class ShapefileUploadResponse(ROIResponse):
 class ROICreate(BaseModel):
     nome: Optional[str] = None
     descricao: Optional[str] = None
-    status: Optional[str] = None
-    
-    @validator('status')
-    def validate_status(cls, v):
-        if v is not None and v not in VALID_STATUS_VALUES:
-            raise ValueError(f"Status deve ser um dos valores: {', '.join(VALID_STATUS_VALUES)}")
-        return v
+    # Campo status removido do update
 
-# Funções auxiliares
+
 def validate_shapefile_files(files: Dict[str, UploadFile]):
     """Valida os arquivos do shapefile antes do processamento"""
     errors = []
@@ -132,13 +123,15 @@ def process_roi_data(roi_dict: dict) -> dict:
     summary="Upload de shapefile para criação de ROI",
     description="""Cria uma Região de Interesse (ROI) a partir de um shapefile.
     Arquivos obrigatórios: .shp, .shx e .dbf
-    Sistema de referência: WGS84 (EPSG:4326)""",
+    Sistema de referência: WGS84 (EPSG:4326)
+    A ROI será criada com status 'ativo' por padrão.""",
     responses={
         400: {"description": "Erro na validação dos arquivos"},
         500: {"description": "Erro interno no processamento"}
     }
 )
 async def create_roi_from_shapefile(
+    descricao: str = Form(..., description="Descrição da ROI fornecida pelo usuário"),
     shp: UploadFile = File(..., description="Arquivo principal .shp"),
     shx: UploadFile = File(..., description="Arquivo de índice .shx"),
     dbf: UploadFile = File(..., description="Arquivo de atributos .dbf"),
@@ -179,7 +172,7 @@ async def create_roi_from_shapefile(
         
         roi_data = {
             "nome": roi_name,
-            "descricao": f"Upload via shapefile em {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            "descricao": descricao,  # Usando a descrição fornecida pelo usuário
             "geometria": processing_result['geojson'],
             "tipo_origem": "shapefile",
             "metadata": {
@@ -197,7 +190,7 @@ async def create_roi_from_shapefile(
                 "propriedades": processing_result.get('properties', {})
             },
             "nome_arquivo_original": files['shp'].filename,
-            "status": "ativo"
+            "status": "ativo"  # Status sempre ativo no upload
         }
         
         # 6. Criar ROI no banco de dados
@@ -299,7 +292,7 @@ async def obter_roi(
     summary="Atualizar ROI",
     description="""Atualiza metadados de uma Região de Interesse.
     
-    Status válidos: ativo, inativo, processando, erro
+    Campos atualizáveis: nome e descrição
     """
 )
 async def atualizar_roi_route(
@@ -313,13 +306,8 @@ async def atualizar_roi_route(
         if not roi:
             raise HTTPException(status_code=404, detail="ROI não encontrada")
         
-        # Validar status se fornecido
+        # Preparar dados para atualização (sem validação de status)
         update_dict = update_data.dict(exclude_unset=True)
-        if 'status' in update_dict and update_dict['status'] not in VALID_STATUS_VALUES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Status inválido. Valores permitidos: {', '.join(VALID_STATUS_VALUES)}"
-            )
         
         # Atualizar a ROI
         await atualizar_roi(
