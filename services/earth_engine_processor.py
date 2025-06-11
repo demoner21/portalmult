@@ -1,10 +1,11 @@
 import ee
+import io
 import logging
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Dict, Tuple, Any, Optional, List
-import io
+from dotenv import load_dotenv
 from utils.validators import bandas
 from utils.async_utils import download_band, download_slope
 from services.earth_engine_initializer import initialize_earth_engine
@@ -17,6 +18,8 @@ from services.model_loader import create_model_binary, create_model_classificati
 from spin.inference import extract_layer
 
 logger = logging.getLogger(__name__)
+
+load_dotenv()
 
 initialize_earth_engine()
 

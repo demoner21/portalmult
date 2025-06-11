@@ -1,18 +1,42 @@
 import ee
+import os
 import logging
+from dotenv import load_dotenv
+from google.oauth2 import service_account
 
 logger = logging.getLogger(__name__)
 
-def initialize_earth_engine():
+load_dotenv()
+
+def initialize_earth_engine(json_key_path=os.getenv('EE_JSON_KEY_PATH'), 
+                          service_account_email=os.getenv('DEFAULT_SERVICE_ACCOUNT')):
+    """
+    Inicializa o Earth Engine com conta de serviço
+    
+    Args:
+        json_key_path (str): Caminho para o arquivo JSON da chave
+        service_account_email (str): Email da conta de serviço
+    """
     try:
-        ee.Initialize()
+        # Verifica se o arquivo existe
+        if not os.path.exists(json_key_path):
+            raise FileNotFoundError(f"Arquivo de chave não encontrado: {json_key_path}")
+
+        # Carrega as credenciais
+        credentials = service_account.Credentials.from_service_account_file(
+            json_key_path,
+            scopes=['https://www.googleapis.com/auth/earthengine']
+        )
+        
+        # Configura o email da conta de serviço
+        credentials = credentials.with_subject(service_account_email)
+        
+        # Inicializa o Earth Engine
+        ee.Initialize(credentials)
+        
+        logger.info("Earth Engine inicializado com sucesso")
+        return True
+        
     except Exception as e:
-        logger.error(f"Erro ao inicializar o Earth Engine: {str(e)}")
-        logger.info("Autenticando no Earth Engine...")
-        try:
-            ee.Authenticate()
-            ee.Initialize()
-            logger.info("Autenticação bem-sucedida.")
-        except Exception as auth_error:
-            logger.error(f"Falha na autenticação do Earth Engine: {str(auth_error)}")
-            raise RuntimeError("Erro ao autenticar o Earth Engine.")
+        logger.error(f"Falha na inicialização do Earth Engine: {str(e)}")
+        raise RuntimeError("Erro na inicialização do Earth Engine") from e
