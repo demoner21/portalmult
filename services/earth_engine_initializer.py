@@ -18,20 +18,16 @@ def initialize_earth_engine(json_key_path=os.getenv('EE_JSON_KEY_PATH'),
         service_account_email (str): Email da conta de serviço
     """
     try:
-        # Verifica se o arquivo existe
         if not os.path.exists(json_key_path):
             raise FileNotFoundError(f"Arquivo de chave não encontrado: {json_key_path}")
 
-        # Carrega as credenciais
         credentials = service_account.Credentials.from_service_account_file(
             json_key_path,
             scopes=['https://www.googleapis.com/auth/earthengine']
         )
         
-        # Configura o email da conta de serviço
         credentials = credentials.with_subject(service_account_email)
         
-        # Inicializa o Earth Engine
         ee.Initialize(credentials)
         
         logger.info("Earth Engine inicializado com sucesso")
