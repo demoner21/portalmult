@@ -20,3 +20,5 @@ lib
 lib64
 pyvenv.cfg
 *.json
+*.sh
+*.sql
