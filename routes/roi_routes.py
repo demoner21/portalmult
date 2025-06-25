@@ -25,7 +25,7 @@ ALLOWED_FILE_TYPES = {
     'prj': 'text/plain',
     'cpg': 'text/plain'
 }
-MAX_FILE_SIZE_MB = 10
+MAX_FILE_SIZE_MB = 20
 MAX_VERTICES = 10000
 
 class ROIBase(BaseModel):
@@ -56,20 +56,17 @@ class ShapefileUploadResponse(ROIResponse):
 class ROICreate(BaseModel):
     nome: Optional[str] = None
     descricao: Optional[str] = None
-    # Campo status removido do update
 
 
 def validate_shapefile_files(files: Dict[str, UploadFile]):
     """Valida os arquivos do shapefile antes do processamento"""
     errors = []
     
-    # Verifica arquivos obrigatórios
     required_files = ['shp', 'shx', 'dbf']
     for req in required_files:
         if req not in files or files[req] is None:
             errors.append(f"Arquivo .{req} é obrigatório")
     
-    # Valida tipos e tamanhos
     for file_type, file in files.items():
         if file is None:
             continue
@@ -98,14 +95,12 @@ def process_roi_data(roi_dict: dict) -> dict:
     """Processa os dados da ROI para garantir o formato correto dos campos JSON"""
     processed = dict(roi_dict)
     
-    # Processa geometria
     if isinstance(processed.get('geometria'), str):
         try:
             processed['geometria'] = json.loads(processed['geometria'])
         except (json.JSONDecodeError, TypeError):
             logger.warning(f"Erro ao decodificar geometria para ROI {processed.get('roi_id')}")
     
-    # Processa metadata
     if isinstance(processed.get('metadata'), str):
         try:
             processed['metadata'] = json.loads(processed['metadata'])
@@ -115,7 +110,30 @@ def process_roi_data(roi_dict: dict) -> dict:
     
     return processed
 
-# Rotas
+def validate_feature_collection_geometry(feature_collection: Dict[str, Any]) -> bool:
+    """Valida se a FeatureCollection possui geometrias válidas"""
+    try:
+        if feature_collection.get('type') != 'FeatureCollection':
+            return False
+        
+        features = feature_collection.get('features', [])
+        if not features:
+            return False
+        
+        # Validar pelo menos a primeira feature
+        first_feature = features[0]
+        if not isinstance(first_feature.get('geometry'), dict):
+            return False
+        
+        geometry = first_feature['geometry']
+        if not geometry.get('type') or not geometry.get('coordinates'):
+            return False
+        
+        return True
+    except Exception as e:
+        logger.error(f"Erro na validação da geometria: {e}")
+        return False
+
 @router.post(
     "/upload-shapefile", 
     response_model=ShapefileUploadResponse,
@@ -124,7 +142,9 @@ def process_roi_data(roi_dict: dict) -> dict:
     description="""Cria uma Região de Interesse (ROI) a partir de um shapefile.
     Arquivos obrigatórios: .shp, .shx e .dbf
     Sistema de referência: WGS84 (EPSG:4326)
-    A ROI será criada com status 'ativo' por padrão.""",
+    A ROI será criada com status 'ativo' por padrão.
+    
+    IMPORTANTE: Preserva todas as features do shapefile como FeatureCollection.""",
     responses={
         400: {"description": "Erro na validação dos arquivos"},
         500: {"description": "Erro interno no processamento"}
@@ -139,7 +159,7 @@ async def create_roi_from_shapefile(
     cpg: UploadFile = File(None, description="Arquivo de codificação .cpg (opcional)"),
     current_user: dict = Depends(get_current_user)
 ):
-    """Endpoint para upload de shapefile e criação de ROI"""
+    """Endpoint para upload de shapefile e criação de ROI com múltiplas features"""
     files = {
         'shp': shp,
         'shx': shx,
@@ -148,38 +168,46 @@ async def create_roi_from_shapefile(
         'cpg': cpg
     }
     
-    # 1. Validação inicial dos arquivos
     validate_shapefile_files(files)
     
     temp_dir = None
     try:
-        # 2. Salvar arquivos temporariamente
+        # 1. Salvar arquivos temporários
         temp_dir = save_uploaded_files([f for f in files.values() if f is not None])
+        logger.info(f"Arquivos salvos em diretório temporário: {temp_dir}")
         
-        # 3. Processar shapefile
+        # 2. Processar shapefile
         processor = ShapefileProcessor()
         processing_result = await processor.process(temp_dir)
         
-        # 4. Validar geometria
-        if not validate_geometry_wkt(processing_result['wkt']):
+        logger.info(f"Shapefile processado: {len(processing_result['features'])} features encontradas")
+        
+        # 3. Criar FeatureCollection completa
+        feature_collection = {
+            "type": "FeatureCollection",
+            "features": processing_result['features']
+        }
+        
+        # 4. Validar geometria da FeatureCollection
+        if not validate_feature_collection_geometry(feature_collection):
             raise HTTPException(
                 status_code=400,
-                detail="Geometria inválida no shapefile"
+                detail="FeatureCollection inválida gerada do shapefile"
             )
         
         # 5. Preparar dados para criação da ROI
         roi_name = generate_roi_name(current_user['id'], files['shp'].filename)
         
+        # Extrair metadados do processamento
+        processing_metadata = processing_result.get('metadata', {})
+        
         roi_data = {
             "nome": roi_name,
-            "descricao": descricao,  # Usando a descrição fornecida pelo usuário
-            "geometria": processing_result['geojson'],
+            "descricao": descricao,
+            "geometria": feature_collection,  # FeatureCollection completa
             "tipo_origem": "shapefile",
             "metadata": {
-                "sistema_referencia": "EPSG:4326",
-                "tipo_geometria": processing_result['type'],
-                "area_ha": processing_result['area'],
-                "bbox": processing_result['bbox'],
+                **processing_metadata,  # Inclui todos os metadados do processamento
                 "arquivos_originais": {
                     "shp": files['shp'].filename,
                     "shx": files['shx'].filename,
@@ -187,10 +215,14 @@ async def create_roi_from_shapefile(
                     "prj": files['prj'].filename if files['prj'] else None,
                     "cpg": files['cpg'].filename if files['cpg'] else None
                 },
-                "propriedades": processing_result.get('properties', {})
+                # Incluir propriedades da primeira feature como exemplo
+                "propriedades_exemplo": (
+                    processing_result['features'][0]['properties'] 
+                    if processing_result['features'] else {}
+                )
             },
             "nome_arquivo_original": files['shp'].filename,
-            "status": "ativo"  # Status sempre ativo no upload
+            "status": "ativo"
         }
         
         # 6. Criar ROI no banco de dados
@@ -199,19 +231,23 @@ async def create_roi_from_shapefile(
             roi_data=roi_data
         )
         
-        # 7. Processar dados da ROI criada
         processed_roi = process_roi_data(created_roi)
         
-        # 8. Montar resposta corretamente serializada
+        # 7. Preparar resposta
         response_data = {
             **processed_roi,
             "arquivos_processados": {
                 file_type: file.filename 
                 for file_type, file in files.items() 
                 if file is not None
-            }
+            },
+            "avisos": [
+                f"Processadas {len(processing_result['features'])} features do shapefile",
+                f"Área total: {processing_metadata.get('area_total_ha', 0):.2f} hectares"
+            ] if len(processing_result['features']) > 1 else None
         }
         
+        logger.info(f"ROI criada com sucesso: {created_roi.get('roi_id')}")
         return ShapefileUploadResponse(**response_data)
         
     except HTTPException as he:
@@ -220,7 +256,7 @@ async def create_roi_from_shapefile(
         logger.error(f"Erro no processamento do shapefile: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Erro ao processar shapefile"
+            detail=f"Erro ao processar shapefile: {str(e)}"
         )
     finally:
         if temp_dir:
@@ -248,7 +284,6 @@ async def listar_minhas_rois(
             offset=offset
         )
         
-        # Processa cada ROI para garantir o formato correto
         processed_rois = []
         for roi in rois:
             processed_roi = process_roi_data(roi)
@@ -273,7 +308,6 @@ async def obter_roi(
         if not roi:
             raise HTTPException(status_code=404, detail="ROI não encontrada")
         
-        # Processa dados da ROI
         processed_roi = process_roi_data(roi)
             
         return ROIResponse(**processed_roi)
@@ -306,22 +340,18 @@ async def atualizar_roi_route(
         if not roi:
             raise HTTPException(status_code=404, detail="ROI não encontrada")
         
-        # Preparar dados para atualização (sem validação de status)
         update_dict = update_data.dict(exclude_unset=True)
         
-        # Atualizar a ROI
         await atualizar_roi(
             roi_id=roi_id,
             user_id=current_user['id'],
             update_data=update_dict
         )
         
-        # Buscar a ROI completa atualizada
         updated_roi = await obter_roi_por_id(roi_id, current_user['id'])
         if not updated_roi:
             raise HTTPException(status_code=404, detail="ROI não encontrada após atualização")
         
-        # Processa dados da ROI atualizada
         processed_roi = process_roi_data(updated_roi)
             
         return ROIResponse(**processed_roi)

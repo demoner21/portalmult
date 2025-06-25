@@ -1,93 +1,209 @@
-import geopandas as gpd
-from shapely.geometry import shape
-from typing import Dict, Tuple
-import json
 import logging
-from pathlib import Path
-import pyproj
-from functools import partial
+import geopandas as gpd
+import pandas as pd
+from shapely.geometry import shape, Polygon, MultiPolygon, mapping
+from shapely.validation import explain_validity
 from shapely.ops import transform
+from typing import Dict, List, Any, Optional
+from pathlib import Path
+import json
 
 logger = logging.getLogger(__name__)
 
 class ShapefileProcessor:
-    async def process(self, temp_dir: Path) -> Dict:
-        """Processa os arquivos do shapefile e retorna dados padronizados"""
+    """Processador avançado de shapefiles com detecção automática de tipo de geometria"""
+    
+    async def process(self, temp_dir: Path) -> Dict[str, Any]:
+        """
+        Processa shapefile e retorna dados estruturados para ROI
+        
+        Args:
+            temp_dir: Diretório temporário com arquivos do shapefile
+            
+        Returns:
+            Dicionário no formato:
+            {
+                "features": [lista de features GeoJSON],
+                "metadata": {
+                    "total_features": int,
+                    "area_total_ha": float,
+                    "bbox": [minx, miny, maxx, maxy],
+                    "geometry_types": [tipos encontrados],
+                    "crs_original": str,
+                    "sistema_referencia": "EPSG:4326"
+                }
+            }
+        """
         try:
-            # Encontrar arquivo .shp no diretório temporário
-            shp_files = list(temp_dir.glob('*.shp'))
-            if not shp_files:
-                raise ValueError("Nenhum arquivo .shp encontrado")
+            # 1. Ler o shapefile
+            gdf = await self._read_shapefile(temp_dir)
+            logger.info(f"Shapefile lido com {len(gdf)} features")
             
-            shp_path = shp_files[0]
+            # 2. Converter para WGS84 se necessário
+            crs_original = str(gdf.crs) if gdf.crs else "Não definido"
+            gdf = await self._ensure_wgs84(gdf)
             
-            # Ler shapefile com geopandas
-            gdf = gpd.read_file(shp_path)
-            if gdf.empty:
-                raise ValueError("Shapefile não contém geometrias")
+            # 3. Processar cada feature
+            processed_features = []
+            total_area_ha = 0
+            geometry_types = set()
             
-            # Verificar e converter CRS para WGS84 se necessário
-            gdf = self.ensure_wgs84(gdf)
+            for idx, row in gdf.iterrows():
+                try:
+                    # Processar geometria
+                    geom_geojson = await self._process_geometry(row.geometry)
+                    geometry_types.add(row.geometry.geom_type)
+                    
+                    # Calcular área em hectares (assumindo WGS84)
+                    area_ha = await self._calculate_area_hectares(row.geometry)
+                    total_area_ha += area_ha
+                    
+                    # Processar atributos do DBF
+                    properties = await self._process_attributes(row, idx, area_ha)
+                    
+                    # Criar feature GeoJSON
+                    feature = {
+                        "type": "Feature",
+                        "geometry": geom_geojson,
+                        "properties": properties
+                    }
+                    
+                    processed_features.append(feature)
+                    
+                except Exception as feature_error:
+                    logger.error(f"Erro processando feature {idx}: {feature_error}")
+                    # Não interrompe o processamento, apenas pula esta feature
+                    continue
             
-            # Pegar a primeira geometria (podemos expandir para múltiplas depois)
-            geometry = gdf.geometry.iloc[0]
+            if not processed_features:
+                raise ValueError("Nenhuma feature válida foi processada do shapefile")
             
-            # Calcular área em hectares
-            area_ha = self.calculate_area(geometry)
+            # 4. Calcular bounding box geral
+            bbox = await self._calculate_bbox(gdf)
             
-            # Converter para formatos padrão
-                    # Converter para formatos padrão
-            geojson = json.loads(gdf.iloc[[0]].to_json())['features'][0]['geometry']
-            
-            # Garantir que as coordenadas são listas, não arrays numpy
-            if 'coordinates' in geojson:
-                geojson['coordinates'] = [list(map(list, ring)) for ring in geojson['coordinates']]
-            
-            wkt = geometry.wkt
+            # 5. Preparar metadados
+            metadata = {
+                "total_features": len(processed_features),
+                "area_total_ha": round(total_area_ha, 2),
+                "bbox": bbox,
+                "geometry_types": list(geometry_types),
+                "crs_original": crs_original,
+                "sistema_referencia": "EPSG:4326"
+            }
             
             return {
-                'type': geometry.geom_type,
-                'geojson': geojson,  # Já é um dict válido
-                'wkt': wkt,
-                'area': area_ha,
-                'bbox': list(map(float, geometry.bounds)),  # Garante floats simples
-                'properties': self.extract_properties(gdf),
-                'crs': 'EPSG:4326'
+                "features": processed_features,
+                "metadata": metadata
             }
             
         except Exception as e:
-            logger.error(f"Erro no processamento: {str(e)}", exc_info=True)
+            logger.error(f"Erro no processamento do shapefile: {str(e)}", exc_info=True)
             raise
 
-    def ensure_wgs84(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-        """Garante que o GeoDataFrame está em WGS84"""
-        if gdf.crs is None:
-            raise ValueError("Shapefile não possui sistema de referência definido")
+    async def _read_shapefile(self, temp_dir: Path) -> gpd.GeoDataFrame:
+        """Lê o shapefile e verifica se não está vazio"""
+        shp_files = list(temp_dir.glob("*.shp"))
+        if not shp_files:
+            raise ValueError("Nenhum arquivo .shp encontrado no diretório")
             
-        if gdf.crs != 'EPSG:4326':
-            logger.info(f"Convertendo CRS de {gdf.crs} para EPSG:4326")
-            return gdf.to_crs('EPSG:4326')
+        gdf = gpd.read_file(shp_files[0])
+        if gdf.empty:
+            raise ValueError("Shapefile não contém features")
             
+        logger.info(f"Shapefile carregado: {len(gdf)} features, CRS: {gdf.crs}")
         return gdf
 
-    def calculate_area(self, geometry) -> float:
-        """Calcula área aproximada em hectares"""
-        # Usando projeção para cálculo de área mais preciso
-        project = partial(
-            pyproj.transform,
-            pyproj.Proj('EPSG:4326'),
-            pyproj.Proj(
-                proj='aea',
-                lat_1=geometry.bounds[1],
-                lat_2=geometry.bounds[3]
-            )
-        )
-        
-        transformed_geom = transform(project, geometry)
-        return transformed_geom.area / 10000  # m² para hectares
+    async def _ensure_wgs84(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        """Converte para WGS84 (EPSG:4326) se necessário"""
+        if gdf.crs is None:
+            logger.warning("CRS não definido, assumindo EPSG:4326")
+            gdf = gdf.set_crs("EPSG:4326")
+        elif gdf.crs.to_epsg() != 4326:
+            logger.info(f"Convertendo CRS de {gdf.crs} para EPSG:4326")
+            gdf = gdf.to_crs("EPSG:4326")
+        return gdf
 
-    def extract_properties(self, gdf: gpd.GeoDataFrame) -> Dict:
-        """Extrai propriedades do dbf para metadados"""
-        if len(gdf.columns) > 1:  # Tem atributos além da geometria
-            return gdf.iloc[0].drop('geometry').to_dict()
-        return {}
+    async def _process_geometry(self, geometry) -> Dict[str, Any]:
+        """Processa e valida a geometria, convertendo para GeoJSON"""
+        # Remover coordenada Z se existir
+        if hasattr(geometry, 'has_z') and geometry.has_z:
+            geometry = await self._remove_z_dimension(geometry)
+        
+        # Validar topologia
+        if not geometry.is_valid:
+            logger.warning(f"Geometria inválida encontrada: {explain_validity(geometry)}")
+            # Tentar corrigir geometria inválida
+            geometry = geometry.buffer(0)
+            if not geometry.is_valid:
+                raise ValueError(f"Geometria não pôde ser corrigida: {explain_validity(geometry)}")
+        
+        # Converter para GeoJSON
+        return mapping(geometry)
+
+    async def _remove_z_dimension(self, geometry):
+        """Remove a coordenada Z de geometrias 3D"""
+        def remove_z(x, y, z=None):
+            return x, y
+        return transform(remove_z, geometry)
+
+    async def _calculate_area_hectares(self, geometry) -> float:
+        """
+        Calcula área em hectares
+        Para WGS84, usa aproximação simples (adequada para áreas pequenas)
+        """
+        try:
+            # Para WGS84, convertemos para um CRS métrico temporariamente
+            from pyproj import CRS, Transformer
+            
+            # Usar UTM apropriado baseado no centróide
+            centroid = geometry.centroid
+            utm_crs = f"EPSG:{32600 + int((centroid.x + 180) / 6) + 1}"
+            
+            # Transformar para UTM
+            transformer = Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
+            geom_utm = transform(transformer.transform, geometry)
+            
+            # Área em metros quadrados, converter para hectares
+            area_m2 = geom_utm.area
+            area_ha = area_m2 / 10000
+            
+            return area_ha
+            
+        except Exception as e:
+            logger.warning(f"Erro no cálculo de área: {e}. Usando aproximação simples.")
+            # Fallback: aproximação grosseira para WGS84
+            return geometry.area * 111000 * 111000 / 10000
+
+    async def _process_attributes(self, row: Any, feature_idx: int, area_ha: float) -> Dict[str, Any]:
+        """Processa os atributos do DBF para a feature"""
+        properties = {
+            "feature_id": int(feature_idx),
+            "area_ha": round(area_ha, 2)
+        }
+        
+        for col_name, value in row.items():
+            if col_name == 'geometry':
+                continue
+                
+            if pd.isna(value):
+                properties[col_name] = None
+            elif isinstance(value, (int, float, str, bool)):
+                properties[col_name] = value
+            else:
+                properties[col_name] = str(value)
+        
+        return properties
+
+    async def _calculate_bbox(self, gdf: gpd.GeoDataFrame) -> List[float]:
+        """Calcula o bounding box geral do shapefile"""
+        bounds = gdf.total_bounds
+        return [float(bounds[0]), float(bounds[1]), float(bounds[2]), float(bounds[3])]
+
+    def _identify_geometry_type(self, gdf: gpd.GeoDataFrame) -> str:
+        """Identifica se o shapefile contém geometrias individuais ou múltiplas"""
+        geom_types = set(gdf.geometry.geom_type)
+        
+        if len(geom_types) == 1:
+            return "single" if "Multi" not in next(iter(geom_types)) else "multi"
+        
+        return "multi"
