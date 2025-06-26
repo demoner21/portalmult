@@ -31,7 +31,7 @@ MAX_VERTICES = 10000
 class ROIBase(BaseModel):
     nome: str
     descricao: Optional[str] = "ROI criada via upload de shapefile"
-    geometria: Dict[str, Any]
+    geometria: Optional[Dict[str, Any]] = None
     tipo_origem: str
     status: Optional[str] = "ativo"
     nome_arquivo_original: Optional[str] = None
@@ -95,12 +95,16 @@ def process_roi_data(roi_dict: dict) -> dict:
     """Processa os dados da ROI para garantir o formato correto dos campos JSON"""
     processed = dict(roi_dict)
     
-    if isinstance(processed.get('geometria'), str):
-        try:
-            processed['geometria'] = json.loads(processed['geometria'])
-        except (json.JSONDecodeError, TypeError):
-            logger.warning(f"Erro ao decodificar geometria para ROI {processed.get('roi_id')}")
+    # Handle geometry
+    if processed.get('geometria') is not None:
+        if isinstance(processed['geometria'], str):
+            try:
+                processed['geometria'] = json.loads(processed['geometria'])
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(f"Erro ao decodificar geometria para ROI {processed.get('roi_id')}")
+                processed['geometria'] = None
     
+    # Handle metadata
     if isinstance(processed.get('metadata'), str):
         try:
             processed['metadata'] = json.loads(processed['metadata'])
@@ -273,7 +277,7 @@ async def get_status_options():
 @router.get("/", response_model=List[ROIResponse])
 async def listar_minhas_rois(
     current_user: dict = Depends(get_current_user),
-    limit: int = 100,
+    limit: int = 5,
     offset: int = 0
 ):
     """Lista todas as ROIs do usuário"""
@@ -290,6 +294,7 @@ async def listar_minhas_rois(
             processed_rois.append(processed_roi)
         
         return processed_rois
+        
     except Exception as e:
         logger.error(f"Erro ao listar ROIs: {str(e)}", exc_info=True)
         raise HTTPException(

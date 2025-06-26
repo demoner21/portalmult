@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal Multiespectral - Análise Completa</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <meta name="referrer" content="no-referrer">
+    <style>
+    </style>
+</head>
+<body x-data="appData()">
+    <aside>
+        <div class="tab-container">
+            <div class="tab active" data-tab="click" @click="currentMode = 'click'; switchTab('click')">Clicar no Mapa</div>
+            <div class="tab" data-tab="manual" @click="currentMode = 'manual'; switchTab('manual')">Inserir Coordenadas</div>
+        </div>
+
+        <!-- Modo: Clicar no Mapa -->
+        <div id="click-tab" class="tab-content active">
+            <div class="form-section">
+                <p>Clique em qualquer local do mapa para selecionar as coordenadas.</p>
+                <div x-text="selectedCoords ? `Lat: ${selectedCoords.lat.toFixed(6)}, Lng: ${selectedCoords.lng.toFixed(6)}` : 'Nenhum local selecionado'" 
+                     style="margin: 1rem 0; font-weight: bold;"></div>
+            </div>
+        </div>
+
+        <!-- Modo: Inserir Manualmente -->
+        <div id="manual-tab" class="tab-content">
+            <div class="form-section">
+                <div class="coordinates-input">
+                    <div>
+                        <label for="latitude">Latitude:</label>
+                        <input type="number" id="latitude" x-model="manualCoords.lat" step="0.000001" placeholder="Ex: -17.70894">
+                    </div>
+                    <div>
+                        <label for="longitude">Longitude:</label>
+                        <input type="number" id="longitude" x-model="manualCoords.lng" step="0.000001" placeholder="Ex: -40.60899">
+                    </div>
+                </div>
+                <button @click="confirmManualCoords()" style="width: 100%;">Confirmar Localização</button>
+            </div>
+        </div>
+
+        <!-- Configurações de Busca -->
+        <div class="form-section">
+            <h3>Parâmetros da Imagem</h3>
+            <label for="dateStart">Data Início:</label>
+            <input type="date" id="dateStart" x-model="mapParams.dateStart" required>
+            
+            <label for="dateEnd">Data Fim:</label>
+            <input type="date" id="dateEnd" x-model="mapParams.dateEnd" required>
+            
+            <label for="cloudFilter">Máximo de Nuvens (%):</label>
+            <input type="range" id="cloudFilter" min="0" max="100" x-model="mapParams.cloudFilter" @input="updateCloudValue()">
+            <span x-text="mapParams.cloudFilter + '%'"></span>
+            
+            <button @click="fetchMapData()" :disabled="isProcessingMap" style="width: 100%; margin-top: 1rem;">
+                <span x-show="!isProcessingMap">Buscar Imagens</span>
+                <span x-show="isProcessingMap">Processando...</span>
+            </button>
+        </div>
+
+        <!-- Seção de upload de imagem -->
+        <div class="form-section">
+            <h3>Análise de Imagem Local</h3>
+            <form id="formInput">
+                <label>
+                    Enviar imagem para análise:
+                    <input type="file" multiple name="files" @change="handleFileUpload($event)" accept="image/*" />
+                </label>
+                <button @click.prevent="requestBackendPrediction()" :disabled="isProcessingImage" style="width: 100%; margin-top: 0.5rem;">
+                    <span x-show="!isProcessingImage">Analisar Imagem</span>
+                    <span x-show="isProcessingImage">Processando Imagem...</span>
+                </button>
+                <span x-text="errorMessage" class="error-message" x-show="errorMessage"></span>
+            </form>
+
+            <img x-bind:src="imgRGB" class="preview-image" x-show="imgRGB">
+        </div>
+
+        <!-- Seção de desenho no mapa -->
+        <div class="form-section" :class="{ 'drawing-active': isDrawing }">
+            <h3>Desenhar no Mapa</h3>
+            <button @click="toggleDrawingMode()" 
+                    :class="{ 'secondary': isDrawing }"
+                    style="width: 100%; margin-bottom: 0.5rem;">
+                <span x-show="!isDrawing">Ativar Modo Desenho</span>
+                <span x-show="isDrawing">Desativar Modo Desenho</span>
+            </button>
+            <button @click="clearDrawings()" 
+                    style="width: 100%;" 
+                    x-show="hasDrawings"
+                    class="outline">
+                Limpar Todos os Desenhos
+            </button>
+            <div x-show="isDrawing" class="instruction-box">
+                <p><strong>Instruções:</strong></p>
+                <p>1. Clique no mapa para começar a desenhar</p>
+                <p>2. Clique para adicionar vértices</p>
+                <p>3. Clique no primeiro ponto para finalizar</p>
+                <p>4. Clique fora para cancelar</p>
+            </div>
+            <div x-show="currentDrawing" class="drawing-info">
+                <p>Área atual: <span x-text="(currentDrawing.getArea() / 10000).toFixed(2)"></span> hectares</p>
+            </div>
+            <div x-show="hasDrawings && !isDrawing" class="drawing-info">
+                <p>Total de polígonos: <span x-text="drawnItems.getLayers().length"></span></p>
+            </div>
+        </div>
+
+        <!-- Resultados -->
+        <div class="form-section response-container">
+            <h3>Resultados</h3>
+            <div id="predictionResults">
+                <!-- Resultados do Mapa -->
+                <div x-show="mapResults">
+                    <template x-if="selectedCoords">
+                        <p x-text="'Localização: ' + selectedCoords.lat.toFixed(6) + ', ' + selectedCoords.lng.toFixed(6)"></p>
+                    </template>
+                    <div class="image-container" x-show="mapUrl">
+                        <img x-bind:src="mapUrl" class="processed-image">
+                        <button @click="downloadImage(mapUrl, 'mapa_processado.png')" class="download-btn">
+                            Baixar Mapa Processado
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Resultados da Imagem -->
+                <div x-show="imageResults">
+                    <p x-show="response.predicted_class">
+                        Imagem classificada como classe: <span x-text="response.predicted_class"></span>
+                    </p>
+                    <template x-for="index in sortedKeys">
+                        <p>
+                            <strong>Classe: <span x-text="index"></span></strong> - probabilidade:
+                            <span x-text="response.probabilities[index]"></span>%
+                            <progress x-bind:value="response.probabilities[index]" max="100"></progress>
+                        </p>
+                    </template>
+                    
+                    <div class="image-container" x-show="imgSrc">
+                        <img x-bind:src="imgSrc" class="processed-image">
+                        <button @click="downloadImage(imgSrc, 'imagem_processada.png')" class="download-btn">
+                            Baixar Imagem Processada
+                        </button>
+                    </div>
+                    
+                    <div class="image-container" x-show="imgRGB">
+                        <img x-bind:src="imgRGB" class="preview-image">
+                        <button @click="downloadImage(imgRGB, 'imagem_original.png')" class="download-btn">
+                            Baixar Imagem Original
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Mapa Leaflet -->
+    <div id="map"></div>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/mapControls.js"></script>
+    <script src="/static/js/drawHandlers.js"></script>
+    <script src="/static/js/apiHandlers.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

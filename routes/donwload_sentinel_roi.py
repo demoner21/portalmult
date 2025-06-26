@@ -39,13 +39,35 @@ async def download_sentinel_images(
         if not 0 <= cloud_pixel_percentage <= 100:
             raise HTTPException(status_code=400, detail="Percentual de nuvens inválido")
 
+        # Process metadata
         metadata = roi.get("metadata", {})
         if isinstance(metadata, str):
-            metadata = json.loads(metadata)
-
+            try:
+                metadata = json.loads(metadata)
+            except json.JSONDecodeError:
+                metadata = {}
+        
         area_ha = metadata.get("area_ha", None)
+        # Add this to the download_sentinel_images function
         if area_ha is None:
-            raise HTTPException(status_code=400, detail="Metadados de área não disponíveis na ROI")
+            try:
+                from utils.geometry_utils import calculate_area_ha
+                area_ha = calculate_area_ha(roi['geometria'])
+                logger.warning(f"Calculated area on-the-fly for ROI {roi_id}: {area_ha} ha")
+            except Exception as e:
+                logger.error(f"Failed to calculate area for ROI {roi_id}: {str(e)}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Não foi possível calcular a área da ROI. Erro: {str(e)}"
+                    )
+            
+        """area_ha = metadata.get("area_ha", None)
+        if area_ha is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Metadados de área não disponíveis na ROI. Recrie a ROI com shapefile válido."
+            )"
+        """
 
         # Limite de área (ajuste conforme necessário)
         MAX_AREA_HA = 10000
@@ -57,23 +79,47 @@ async def download_sentinel_images(
 
         # Convert geometry to proper format for Earth Engine
         try:
-            # First try to parse as WKT if needed
-            if roi['geometria'].startswith("POLYGON") or roi['geometria'].startswith("MULTIPOLYGON"):
+            geometry = None
+            geom_data = roi['geometria']
+            
+            logger.debug(f"Geometry type: {type(geom_data)}")
+            logger.debug(f"Geometry content sample: {str(geom_data)[:200]}")
+
+            # Case 1: Already a FeatureCollection (from shapefile upload)
+            if isinstance(geom_data, dict) and geom_data.get('type') == 'FeatureCollection':
+                features = geom_data.get('features', [])
+                if features:
+                    # Take first feature's geometry
+                    first_geom = features[0].get('geometry')
+                    if first_geom:
+                        geometry = ee.Geometry(first_geom)
+            
+            # Case 2: WKT string
+            elif isinstance(geom_data, str) and geom_data.upper().startswith(('POLYGON', 'MULTIPOLYGON')):
                 from shapely.wkt import loads as wkt_loads
-                shapely_geom = wkt_loads(roi['geometria'])
+                shapely_geom = wkt_loads(geom_data)
                 geometry = ee.Geometry(shapely_geom.__geo_interface__)
-            else:
-                # Try to load as GeoJSON
-                if isinstance(roi['geometria'], str):
-                    geojson = json.loads(roi['geometria'])
-                else:
-                    geojson = roi['geometria']
-                geometry = ee.Geometry(geojson)
+            
+            # Case 3: GeoJSON string
+            elif isinstance(geom_data, str):
+                try:
+                    geojson = json.loads(geom_data)
+                    geometry = ee.Geometry(geojson)
+                except json.JSONDecodeError:
+                    pass
+            
+            # Case 4: Direct GeoJSON dict
+            elif isinstance(geom_data, dict) and geom_data.get('type') in ['Polygon', 'MultiPolygon']:
+                geometry = ee.Geometry(geom_data)
+            
+            if geometry is None:
+                raise ValueError("Formato de geometria não suportado ou inválido")
+
         except Exception as geom_error:
-            logger.error(f"Erro na conversão da geometria: {str(geom_error)}")
+            logger.error(f"Erro na conversão da geometria (ROI {roi_id}): {str(geom_error)}")
             raise HTTPException(
                 status_code=400,
-                detail=f"Geometria da ROI em formato inválido: {str(geom_error)}"
+                detail=f"Geometria da ROI em formato inválido. Recrie a ROI com shapefile válido. Erro: {str(geom_error)}"
             )
 
         # Processa as imagens usando o EarthEngineProcessor
@@ -81,31 +127,49 @@ async def download_sentinel_images(
         parameters = {
             "data": [start_date, end_date],
             "filter": f"CLOUDY_PIXEL_PERCENTAGE,{cloud_pixel_percentage}",
-            "latitude": 0,
-            "longitude": 0
+            "geometry": geometry  # Pass the geometry directly
         }
-        result_files, _ = await processor.process_data(parameters, geometry)
+
+        try:
+            result_files, _ = await processor.process_data(parameters)
+        except Exception as ee_error:
+            logger.error(f"Erro no Earth Engine (ROI {roi_id}): {str(ee_error)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Erro ao processar imagens no Earth Engine: {str(ee_error)}"
+            )
 
         if not result_files:
-            raise HTTPException(status_code=404, detail="Nenhuma imagem encontrada")
+            raise HTTPException(
+                status_code=404,
+                detail="Nenhuma imagem encontrada para os critérios especificados"
+            )
 
         # Cria o arquivo ZIP
         zip_creator = ZipCreator()
         zip_buffer = await zip_creator.create_zip_file(result_files)
 
+        # Log successful download
+        logger.info(
+            f"Download realizado com sucesso para ROI {roi_id}. "
+            f"Período: {start_date} a {end_date}, "
+            f"Nuvens: {cloud_pixel_percentage}%, "
+            f"Área: {area_ha:.2f} ha"
+        )
+
         return StreamingResponse(
             zip_buffer,
             media_type="application/zip",
             headers={
-                'Content-Disposition': f'attachment; filename="sentinel_roi_{roi_id}.zip"'
+                'Content-Disposition': f'attachment; filename="sentinel_roi_{roi_id}_{start_date}_{end_date}.zip"'
             }
         )
 
     except HTTPException as he:
         raise he
     except Exception as e:
-        logger.error(f"Erro no download das imagens: {str(e)}", exc_info=True)
+        logger.error(f"Erro geral no download das imagens (ROI {roi_id}): {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Erro ao processar o download das imagens: {str(e)}"
+            detail=f"Erro inesperado ao processar o download: {str(e)}"
         )

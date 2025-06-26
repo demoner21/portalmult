@@ -125,26 +125,18 @@ class ShapefileProcessor:
 
     async def _process_geometry(self, geometry) -> Dict[str, Any]:
         """Processa e valida a geometria, convertendo para GeoJSON"""
-        # Remover coordenada Z se existir
-        if hasattr(geometry, 'has_z') and geometry.has_z:
-            geometry = await self._remove_z_dimension(geometry)
+        def add_z(x, y, z=None):
+            return x, y, 0 if z is None else z
+        geometry = transform(add_z, geometry)
         
         # Validar topologia
         if not geometry.is_valid:
             logger.warning(f"Geometria inválida encontrada: {explain_validity(geometry)}")
-            # Tentar corrigir geometria inválida
             geometry = geometry.buffer(0)
             if not geometry.is_valid:
                 raise ValueError(f"Geometria não pôde ser corrigida: {explain_validity(geometry)}")
         
-        # Converter para GeoJSON
         return mapping(geometry)
-
-    async def _remove_z_dimension(self, geometry):
-        """Remove a coordenada Z de geometrias 3D"""
-        def remove_z(x, y, z=None):
-            return x, y
-        return transform(remove_z, geometry)
 
     async def _calculate_area_hectares(self, geometry) -> float:
         """
